@@ -14,7 +14,7 @@ end
 
 local Sage = {}
 
-local function setup(opts)
+function Sage.setup(opts)
     local config = require("sage.base.config")
     local dashboard = require("sage.ui.dashboard")
     local manager = require("sage.manager")
@@ -44,4 +44,4 @@ local function setup(opts)
     end
 end
 
-return { setup = setup }
+return Sage
