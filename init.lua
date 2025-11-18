@@ -1,11 +1,11 @@
 -- Version check with better error handling
-_G.SAGE_NVIM_VERSION = vim.version()
-if _G.SAGE_NVIM_VERSION.major == 0 and _G.SAGE_NVIM_VERSION.minor < 12 then
+local SAGE_NVIM_VERSION = vim.version()
+if SAGE_NVIM_VERSION.major == 0 and SAGE_NVIM_VERSION.minor < 12 then
     vim.notify(
         "SAGE PLUGIN MANAGER requires Neovim >= 0.12.0 (current: "
-            .. _G.SAGE_NVIM_VERSION.major
+            .. SAGE_NVIM_VERSION.major
             .. "."
-            .. _G.SAGE_NVIM_VERSION.minor
+            .. SAGE_NVIM_VERSION.minor
             .. ")",
         vim.log.levels.ERROR
     )
