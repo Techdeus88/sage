@@ -1,0 +1,21 @@
+{    "diagnostics.disable": [
+        "redundant-parameter",
+        "param-type-mismatch",
+        "cast-local-type",
+        "inject-field",
+        "duplicate-set-field",
+        "need-check-nil",
+        "missing-fields"
+    ],
+    "diagnostics.globals": [
+        "vim",
+        "use",
+        "packer_plugins",
+        "NOREF_NOERR_TRUNC",
+        "SageGlobal",
+        "Sage",
+        "SagePack",
+        "SageManager",
+        "SageContainer"
+    ]
+}
