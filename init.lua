@@ -21,16 +21,22 @@ function Sage.setup(opts)
 
     local merged_opts = vim.tbl_deep_extend("force", config, opts)
 
-    _G.sage = {
+    merged_opts.sage = {
         start = vim.loop.hrtime(),
     }
 
-    pcall(require, "sage.base.command")
+    local c_ok, create_command = pcall(require, "sage.base.command")
+    if not c_ok then
+        return
+    end
+    create_command.setup(merged_opts.sage.start)
+    create_command.run()
 
     -- Call init safely
     local d_ok, _ = pcall(function()
         dashboard:init(merged_opts.dashboard)
     end)
+
     if not d_ok then
         vim.notify("sage.ui.dashboard missing `init` method", vim.log.levels.ERROR)
     end
