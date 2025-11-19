@@ -50,13 +50,9 @@ function M.setup(opts)
     end
 
     -- Run packs safely
-    local m_ok, _ = pcall(function()
+    pcall(function()
         manager:run_packs(merged_opts)
     end)
-
-    if not m_ok then
-        vim.notify("sage.manager missing `run_packs` method", vim.log.levels.ERROR)
-    end
 end
 
 return M

@@ -283,10 +283,8 @@ function Manager:run_packs(opts)
 
     -- Build paths
     local pre_path = vim.fn.stdpath("config") .. "/lua"
-    print(pre_path)
     local specs_path = pre_path .. (opts.directory or "/packs")
-    print(specs_path)
-
+    
     -- Check if directory exists
     if vim.fn.isdirectory(specs_path) == 0 then
         vim.notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
@@ -302,7 +300,6 @@ function Manager:run_packs(opts)
         vim.notify(string.format("No spec files found in: %s", specs_path), vim.log.levels.INFO)
         return all_specs
     end
-    print(vim.inspect(spec_files))
 
     -- Parse specs
     for _, file in ipairs(spec_files) do
