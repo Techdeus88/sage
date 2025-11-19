@@ -324,6 +324,7 @@ function Manager:run_packs(opts)
             )
         end
     end
+    print(vim.inspect(all_specs))
 
     if #all_specs == 0 then
         vim.notify("No pack specs found", vim.log.levels.INFO)
