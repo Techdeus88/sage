@@ -308,7 +308,8 @@ function Manager:run_packs(opts)
     for _, file in ipairs(spec_files) do
         print(vim.inspect(file))
         local success, file_specs = pcall(dofile, file)
-
+        print(success)
+        print(vim.inspect(file_specs))
         if success and file_specs and type(file_specs) == "table" then
             for _, spec in ipairs(file_specs) do
                 local src = spec.src or spec[1]
