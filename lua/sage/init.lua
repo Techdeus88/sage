@@ -26,12 +26,8 @@ function M.setup(opts)
         start = vim.loop.hrtime(),
     }
     
-    -- local c_ok, create_command = pcall(require, "sage.base.command")
-   -- if not c_ok then
-       -- vim.notify('no command', vim.log.levels.DEBUG)
-    -- end
-    
-        end
+    pcall(require, "sage.base.command")
+   
     -- Call init safely
     local d_ok, _ = pcall(function()
         dashboard:init(merged_opts.dashboard)

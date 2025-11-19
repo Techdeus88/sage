@@ -1,11 +1,10 @@
-local C = {}
 
-function C.run()
 vim.api.nvim_create_autocmd("VimEnter", {
     pattern = "*",
     once = true,
     callback = function()
-        local time_duration = (vim.loop.hrtime() - C.start) / 1e6
+        local start = vim.loop.hrtime()
+        local time_duration = (vim.loop.hrtime() - start) / 1e6
         local api = require("sage.api")
         api:track_event("vimenter", time_duration)
     end,
@@ -15,7 +14,8 @@ vim.api.nvim_create_autocmd("UiEnter", {
     pattern = "*",
     once = true,
     callback = function()
-        local time_duration = string.format("%.2f", (vim.loop.hrtime() - C.start) / 1e6)
+        local start = vim.loop.hrtime()
+        local time_duration = string.format("%.2f", (vim.loop.hrtime() - start) / 1e6)
         local api = require("sage.api")
         api:track_event("uienter", time_duration)
     end,
@@ -157,12 +157,3 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
         vim.notify("Sage cleanup complete before exit", vim.log.levels.INFO)
     end,
 })
-
-end
-
-function C.setup(start_time)
-    C.start = start_time
-end
-
-
-return C
