@@ -285,8 +285,6 @@ function Manager:run_packs(opts)
     local pre_path = vim.fn.stdpath("config") .. "/lua"
     local specs_path = pre_path .. (opts.directory or "/packs")
 
-
-    print(specs_path)
     -- Check if directory exists
     if vim.fn.isdirectory(specs_path) == 0 then
         vim.notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
@@ -297,7 +295,6 @@ function Manager:run_packs(opts)
     local spec_files = utils.get_lua_files_recursive_opts(specs_path, {
         exclude_dirs = { "configs", "tests", "spec", "node_modules", ".git" },
     })
-    print(vim.inspect(spec_files))
 
     if #spec_files == 0 then
         vim.notify(string.format("No spec files found in: %s", specs_path), vim.log.levels.INFO)
@@ -306,10 +303,7 @@ function Manager:run_packs(opts)
 
     -- Parse specs
     for _, file in ipairs(spec_files) do
-        print(vim.inspect(file))
         local success, file_specs = pcall(dofile, file)
-        print(success)
-        print(vim.inspect(file_specs))
         if success and file_specs and type(file_specs) == "table" then
             for _, spec in ipairs(file_specs) do
                 local src = spec.src or spec[1]
@@ -329,11 +323,9 @@ function Manager:run_packs(opts)
             )
         end
     end
-    print(vim.inspect(all_specs))
 
     if #all_specs == 0 then
         vim.notify("No pack specs found", vim.log.levels.INFO)
-        print(vim.inspect(all_specs))
         return all_specs
     end
 
