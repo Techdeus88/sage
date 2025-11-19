@@ -15,6 +15,8 @@ end
 local M = {}
 
 function M.setup(opts)
+    print("Setting up")
+    print(vim.inspect(opts))
     local config = require("sage.base.config")
     local dashboard = require("sage.ui.dashboard")
     local manager = require("sage.manager")
