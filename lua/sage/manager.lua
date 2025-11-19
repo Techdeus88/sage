@@ -419,7 +419,7 @@ function Manager:run_packs(opts)
 
         -- Emit completion
         vim.schedule(function()
-            local total_duration = vim.loop.hrtime() - _G.sage.start
+            local total_duration = vim.loop.hrtime() - vim.loop.hrtime()
             Event.emit("pack:complete", {
                 duration = total_duration,
                 num_packs = #all_packs,
