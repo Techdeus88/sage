@@ -12,9 +12,9 @@ if SAGE_NVIM_VERSION.major == 0 and SAGE_NVIM_VERSION.minor < 12 then
     return nil
 end
 
-local Sage = {}
+local M = {}
 
-function Sage.setup(opts)
+function M.setup(opts)
     local config = require("sage.base.config")
     local dashboard = require("sage.ui.dashboard")
     local manager = require("sage.manager")
@@ -51,4 +51,4 @@ function Sage.setup(opts)
     end
 end
 
-return Sage
+return M
