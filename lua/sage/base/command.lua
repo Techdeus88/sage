@@ -1,5 +1,6 @@
 local C = {}
 
+function C.run()
 vim.api.nvim_create_autocmd("VimEnter", {
     pattern = "*",
     once = true,
@@ -157,8 +158,11 @@ vim.api.nvim_create_autocmd("VimLeavePre", {
     end,
 })
 
+end
+
 function C.setup(start_time)
     C.start = start_time
 end
+
 
 return C
