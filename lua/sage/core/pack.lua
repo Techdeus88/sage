@@ -24,37 +24,52 @@ function Pack.new(spec, stage)
 	self.stage = stage
 	self.status = beg_status
 	self.priority = priority
-	
+
     self.loaded = false
 	self.installed = false
 	self.failed = false
-	
+
     self.path = ""
 	self.active = ""
 	self.rev = ""
-	
+
     self.branches = {}
 	self.tags = {}
 	self.times = { install_duration = 0, config_duration = 0 }
-	
+
     self.specs = {}
 	self.specs["user"] = spec
 	self.specs["normalize"] = {}
 
-	self.specs.normalize.src = prefix .. src
-	self.specs.normalize.name = name
-	self.specs.normalize.version = version
-	self.specs.normalize.data = {}
-	self.specs.normalize.data.stage = stage
-	self.specs.normalize.data.source = src
-	self.specs.normalize.data.depends = depends
-	self.specs.normalize.data.before = before
-	self.specs.normalize.data.config = config
-	self.specs.normalize.data.after = after
-	self.specs.normalize.data.on = on
-	self.specs.normalize.data.build = build
+    local n_spec = self.specs.normalize
+
+    n_spec.src = prefix .. src
+	n_spec.name = name
+    n_spec.version = version
+    n_spec.data = {}
+    n_spec.data.stage = stage
+    n_spec.data.source = src
+    n_spec.data.depends = depends
+    n_spec.data.before = before
+    n_spec.data.config = config
+    n_spec.data.after = after
+    n_spec.data.on = on
+	n_spec.data.build = build
 
 	return self
+end
+
+function Pack:set_path(path)
+    if path ~= nil then
+        self.path = path
+        self.specs.normalize.path = path
+    end
+end
+
+function Pack:get_path()
+    if self.path ~= "" then
+        return self.path
+    end
 end
 
 function Pack:set_stage(stage)

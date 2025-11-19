@@ -27,14 +27,17 @@ vim.api.nvim_create_autocmd("PackChangedPre", {
         local kind = event.data.kind
         local spec = event.data.spec
         local name = spec.name
+
         local sage_manager = require("sage.manager")
         local Pack = sage_manager.packs[name]
         local n_spec = Pack.specs.normalize
 
         if kind == "install" then
+            Pack:set_status("installing")
             bus:emit("pack:install:start", {
                 name = n_spec.name,
-                status = "installing",
+                status = Pack:get_status(),
+                message = "Installing",
             }, "manager:install")
         elseif kind == "delete" then
             local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", s2) == 1
@@ -42,9 +45,11 @@ vim.api.nvim_create_autocmd("PackChangedPre", {
                 error("Deletion cancelled for " .. n_spec.name) -- Aborts the delete
             end
 
+            Pack:set_status("deleting")
             bus:emit("pack:delete:start", {
                 name = n_spec.name,
-                status = "deleting",
+                status = Pack:get_status(),
+                message = "Deleting",
             }, "manager:delete")
             vim.notify("Deleting: " .. n_spec.name .. " at " .. event.data.path, vim.log.levels.WARN)
         elseif kind == "update" then
@@ -53,9 +58,11 @@ vim.api.nvim_create_autocmd("PackChangedPre", {
                 error("Update cancelled for " .. n_spec.name) -- Aborts the delete
             end
 
+            Pack:set_status("updating")
             bus:emit("pack:update:start", {
                 name = n_spec.name,
-                status = "updating",
+                status = Pack:get_status(),
+                message = "Updating",
             }, "manager:update")
             vim.notify("Updating: " .. n_spec.name .. " at " .. event.data.path, vim.log.levels.WARN)
         end
@@ -70,6 +77,7 @@ vim.api.nvim_create_autocmd("PackChanged", {
         local bus = require("sage.core.bus")
         local kind = ev.data.kind
         local spec = ev.data.spec
+        local pack_path = ev.data.path
         local name = spec.name
         local sage_manager = require("sage.manager")
         local Pack = sage_manager.packs[name]
@@ -77,13 +85,15 @@ vim.api.nvim_create_autocmd("PackChanged", {
 
         if kind == "install" then
             vim.notify("Install complete: ", spec.name, vim.log.levels.DEBUG, { title = "Sage Debug" })
+            Pack:set_status("installed")
+            Pack:set_path(pack_path)
 
-            bus:emit("pack:install_finish", {
+            bus:emit("pack:install:finish", {
                 name = n_spec.name,
-                status = "install_finish",
+                status = Pack:get_status(),
+                message = "Install completed",
             }, "manager:install")
 
-            local pack_path = ev.data.path
             -- temporarily change directory
             local old_cwd = vim.fn.getcwd()
             pcall(vim.fn.chdir, pack_path)
@@ -100,14 +110,18 @@ vim.api.nvim_create_autocmd("PackChanged", {
             -- restore
             pcall(vim.fn.chdir, old_cwd)
         elseif kind == "update" then
-            bus:emit("pack:update_finish", {
+            Pack:set_status("updated")
+            bus:emit("pack:update:finish", {
                 name = n_spec.name,
-                status = "update_finish",
+                message = "Update completed",
+                status = "Update complete",
             }, "manager:update")
         elseif kind == "delete" then
-            bus:emit("pack:delete_finish", {
+            Pack:set_status("deleted")
+            bus:emit("pack:delete:finish", {
                 name = n_spec.name,
-                status = "delete.._finish",
+                status = Pack:get_status(),
+                message = "Delete completed',
             }, "manager:delete")
         end
 
