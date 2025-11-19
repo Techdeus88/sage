@@ -33,8 +33,7 @@ function M.setup(opts)
 
     local c_ok, create_command = pcall(require, "sage.base.command")
     if not c_ok then
-        print('no command')
-        return
+        vim.notify('no command', vim.log.levels.DEBUG)
     end
     create_command.setup(merged_opts.sage.start)
     create_command.run()
