@@ -282,9 +282,9 @@ function Manager:run_packs(opts)
     local seen_names = {}
 
     -- Build paths
-    local pre_path = vim.fn.stdpath("config") .. "/lua/"
+    local pre_path = vim.fn.stdpath("config") .. "/lua"
     print(pre_path)
-    local specs_path = pre_path .. (opts.directory or "packs")
+    local specs_path = pre_path .. (opts.directory or "/packs")
     print(specs_path)
 
     -- Check if directory exists
