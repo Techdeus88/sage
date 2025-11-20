@@ -17,47 +17,78 @@ local function add_padding_to_line(line, padding)
     return string.format("%s%s%s", pad, line, pad)
 end
 
-local function format_table(tbl, indent)
+local function format_table(tbl, indent, max_depth)
     indent = indent or 0
+    max_depth = max_depth or 3
+    
+    -- Prevent infinite recursion
+    if indent >= max_depth then
+        return { "  [max depth reached]" }
+    end
+    
     local prefix = string.rep("  ", indent)
     local lines = {}
+    local count = 0
     
     for key, value in pairs(tbl) do
-        if type(value) == "table" then
+        count = count + 1
+        -- Prevent too many entries
+        if count > 50 then
+            table.insert(lines, prefix .. "  [... and more]")
+            break
+        end
+        
+        local val_type = type(value)
+        
+        if val_type == "table" then
             table.insert(lines, prefix .. key .. " = {")
-            table.insert(lines, format_table(value, indent + 1))
+            local nested = format_table(value, indent + 1, max_depth)
+            for _, line in ipairs(nested) do
+                table.insert(lines, line)
+            end
             table.insert(lines, prefix .. "}")
+        elseif val_type == "string" then
+            -- Truncate long strings
+            local str_val = #value > 50 and value:sub(1, 47) .. "..." or value
+            table.insert(lines, prefix .. key .. " = " .. string.format('"%s"', str_val))
+        elseif val_type == "function" then
+            table.insert(lines, prefix .. key .. " = <function>")
+        elseif val_type == "userdata" then
+            table.insert(lines, prefix .. key .. " = <userdata>")
         else
-            local val_str = type(value) == "string" and string.format('"%s"', value) or tostring(value)
-            table.insert(lines, prefix .. key .. " = " .. val_str)
+            table.insert(lines, prefix .. key .. " = " .. tostring(value))
         end
     end
     
-    return table.concat(lines, "\n")
+    return lines
 end
 
 local function display_pack_comparison(pack_name)
     local manager = require("sage.manager")
     local pack = manager.packs[pack_name]
     
-    local n_pack = pack:get_native()
-    
-    if not pack or not n_pack then
-        vim.notify(string.format("[%s] Failed to retrieve pack data", pack_name), vim.log.levels.ERROR)
+    if not pack then
+        vim.notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
         return
     end
-
+    
+    local n_pack = pack:get_native()
+    
+    if not n_pack then
+        vim.notify(string.format("[%s] Failed to get native pack", pack_name), vim.log.levels.ERROR)
+        return
+    end
+    
     local width = vim.o.columns
     local height = vim.o.lines
-
     local win_height = math.floor(height * 0.80)
     local win_width = math.floor(width * 0.60)
-
     local row = math.floor((height - win_height) / 2)
     local col = math.floor((width - win_width) / 2)
     
-    -- Build content lines
+    -- Build content lines as table of strings (no newlines)
     local lines = {}
+    
     table.insert(lines, "╔════════════════════════════════════════╗")
     table.insert(lines, string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"))
     table.insert(lines, "╚════════════════════════════════════════╝")
@@ -66,20 +97,18 @@ local function display_pack_comparison(pack_name)
     -- Pack (Manager) section
     table.insert(lines, "📦 PACK (Manager)")
     table.insert(lines, string.rep("─", 40))
-    if pack then
-        table.insert(lines, format_table(pack))
-    else
-        table.insert(lines, "  (nil)")
+    local pack_lines = format_table(pack, 0)
+    for _, line in ipairs(pack_lines) do
+        table.insert(lines, line)
     end
     table.insert(lines, "")
     
     -- N_Pack (vim.pack) section
     table.insert(lines, "📦 N_PACK (vim.pack.get)")
     table.insert(lines, string.rep("─", 40))
-    if n_pack then
-        table.insert(lines, format_table(n_pack))
-    else
-        table.insert(lines, "  (nil)")
+    local n_pack_lines = format_table(n_pack, 0)
+    for _, line in ipairs(n_pack_lines) do
+        table.insert(lines, line)
     end
     table.insert(lines, "")
     
@@ -87,24 +116,33 @@ local function display_pack_comparison(pack_name)
     table.insert(lines, "━" .. string.rep("━", 38) .. "━")
     table.insert(lines, "Press 'q' to close this buffer")
     
+    -- Create buffer and window
     local buf = vim.api.nvim_create_buf(false, true)
     local win = vim.api.nvim_open_win(buf, false, {
-             relative = "editor",
+        relative = "editor",
         width = win_width,
-        height = self.header_height,
+        height = win_height,
         row = row,
         col = col,
         style = "minimal",
-        border = { "╭", "─", "╮", "│", "", "", "", "│" },     
+        border = { "╭", "─", "╮", "│", "╰", "─", "╯", "│" },
+        zindex = 100,
     })
-
-    for i, str in ipairs(lines) do
-        lines[i] = add_padding_to_line(string.gsub(str, "[\n\r]", ""), 1)
+    
+    -- Add padding to each line
+    local padded_lines = {}
+    for _, line in ipairs(lines) do
+        table.insert(padded_lines, " " .. line .. " ")
     end
     
+    -- Set buffer content
     vim.api.nvim_buf_set_option(buf, "modifiable", true)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
     vim.api.nvim_buf_set_option(buf, "modifiable", false)
+    vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+    vim.api.nvim_buf_set_option(buf, "filetype", "lua")
+
+    pcall(vim.api.nvim_set_current_win, win)
     
     -- Set close keymap
     vim.keymap.set("n", "q", function()
@@ -570,7 +608,7 @@ function Dashboard:update_line(row)
         lazy_text,
         row.message:render()
     )
-    local padded = self:add_padding_to_line(line_text, 1)
+    local padded = add_padding_to_line(line_text, 1)
 
     -- Update buffer text
     local current_line = vim.api.nvim_buf_get_lines(self.content_buf, l, l + 1, false)[1] or ""
@@ -871,6 +909,7 @@ function Dashboard:setup_keymaps()
         local row = self:get_row_at_line(cursor[1])
 
         if not row then
+            vim.notify("No pack selected", vim.log.levels.WARN)
             return
         end
 
@@ -883,7 +922,7 @@ function Dashboard:setup_keymaps()
 
      vim.keymap.set("n", "<A-CR>", function()
         local cursor = vim.api.nvim_win_get_cursor(0)
-        local row = dashboard:get_row_at_line(cursor[1])
+        local row = self:get_row_at_line(cursor[1])
         
         if not row then
             vim.notify("No pack selected", vim.log.levels.WARN)
@@ -891,7 +930,7 @@ function Dashboard:setup_keymaps()
         end
         
         display_pack_comparison(row.name)
-    end, { buffer = dashboard.content_buf, silent = true, desc = "Show pack comparison" })
+    end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
 end
 -- ============================================================================
 -- Window Management

@@ -117,14 +117,16 @@ function Manager:install_activate_batch(pack_groups)
         local name = pack.specs.normalize.name
         pack:set_status("installing")
 
-        vim.defer_fn(function()
-            Event.emit("pack:install:start", {
-                name = name,
-                status = "installing",
-                message = "Installation starting",
-                pack = pack,
-            })
-        end, delay_start * i)
+        vim.schedule(function()
+            vim.defer_fn(function()
+                Event.emit("pack:install:start", {
+                    name = name,
+                    status = "installing",
+                    message = "Installation starting",
+                    pack = pack,
+                })
+            end, delay_start * i)
+        end)
     end
 
     -- Single batch installation
@@ -141,6 +143,9 @@ function Manager:install_activate_batch(pack_groups)
                 return
             end
 
+            pack.installed = true
+            pack:set_status("installed")
+
             -- Load the pack
             vim.cmd("packadd " .. pack_name)
 
@@ -149,19 +154,21 @@ function Manager:install_activate_batch(pack_groups)
             pack.times = pack.times or {}
             pack.times.install_duration = string.format("%.2f", individual_time / 1e6)
 
-            pack:set_status("installed")
-            pack.installed = true
-
             -- Emit install:finish event
             vim.schedule(function()
-                Event.emit("pack:install:finish", {
-                    name = pack_name,
-                    status = "installed",
-                    message = "Installation complete",
-                    install_duration = pack.times.install_duration,
-                    pack = pack,
-                })
+                vim.defer_fn(function()
+                    Event.emit("pack:install:finish", {
+                        name = pack_name,
+                        status = "installed",
+                        message = "Installation complete",
+                        install_duration = pack.times.install_duration,
+                        pack = pack,
+                    })
+                end, delay_start + 50)
             end)
+
+            pack:set_active(true)
+            pack:set_status("activated")
         end,
     })
 
@@ -174,12 +181,15 @@ function Manager:install_activate_batch(pack_groups)
             pack:set_status("failed")
         end
 
-        Event.emit("pack:install:failed", {
-            count = #all_packs,
-            message = "Batch installation failed",
-            error = tostring(err),
-        })
-
+        vim.schedule(function()
+            vim.defer_fn(function()
+                Event.emit("pack:install:failed", {
+                    count = #all_packs,
+                    message = "Batch installation failed",
+                    error = tostring(err),
+                })
+            end, delay_start + 50)
+        end)
         return false
     end
 
@@ -209,14 +219,16 @@ function Manager:install_activate(packs)
         local name = pack.specs.normalize.name
         pack:set_status("installing")
 
-        vim.defer_fn(function()
-            Event.emit("pack:install:start", {
-                name = name,
-                status = "installing",
-                message = "Installation starting",
-                pack = pack,
-            })
-        end, delay_start * i)
+        vim.schedule(function()
+            vim.defer_fn(function()
+                Event.emit("pack:install:start", {
+                    name = name,
+                    status = "installing",
+                    message = "Installation starting",
+                    pack = pack,
+                })
+            end, delay_start * i)
+        end)
     end
 
     -- Install

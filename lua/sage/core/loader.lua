@@ -144,7 +144,6 @@ function BaseLoader:update_pack(pack_name, manager, to_force)
     end
 end
 
-
 -- Safe loading with proper state management
 function BaseLoader:load_pack_safe(pack, reason, delay_ms)
     local name = pack.specs.normalize.name
