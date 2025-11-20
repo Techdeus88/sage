@@ -68,6 +68,10 @@ function Pack:set_path(path)
     end
 end
 
+function Pack:get_name()
+    return self.specs.normalize.name or ""
+end
+
 function Pack:set_active(active)
     if active ~= nil then
         self.active = active
@@ -150,6 +154,20 @@ end
 
 function Pack:get_status()
     return self.status
+end
+
+function Pack:get_native()
+    local name = self:get_name()
+    local n_ok, res_pack_list = pcall(vim.pack.get, { name })
+
+    if not n_ok then
+        vim.notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
+    end
+
+    local n_pack = res_pack_list[1]
+    if n_pack then
+        return n_pack
+    end
 end
 
 return Pack

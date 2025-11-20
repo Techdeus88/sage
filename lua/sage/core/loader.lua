@@ -50,33 +50,6 @@ local function load_pack(pack, config_start)
     return true, "success"
 end
 
-local function get_pack(pack_name)
-    local pack = manager.packs[pack_name]
-    local n_ok, res_pack_list = pcall(vim.pack.get, { pack_name })
-
-    if not n_ok then
-        vim.notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
-    end
-
-    local n_pack = res_pack_list[1]
-    if pack and n_pack then
-        return pack, n_pack
-    end
-end
-
-local fucntion update_pack(pack_name, to_force)
-    to_force = to_force or false
-    local pack = manager.packs[pack_name]
-    if pack then
-        local ok, err = pcall(vim.pack.update, { pack_name }, { force = to_force })
-        if not ok then
-            local msg = string.format("[%s] Update failed: %s", pack_name, err)
-            vim.notify(msg, vim.log.levels.ERROR)
-            return false, err
-        end
-        local spec = pack.specs.normalize
-    end
-end
 -- ============================================================================
 -- DEPENDENCY RESOLUTION
 -- ============================================================================
@@ -156,6 +129,21 @@ function BaseLoader:is_pack_ready(pack)
     end
     return pack.loaded or self:is_loading(pack)
 end
+
+fucntion BaseLoader:update_pack(pack_name, manager, to_force)
+    to_force = to_force or false
+    local pack = manager.packs[pack_name]
+    if pack then
+        local ok, err = pcall(vim.pack.update, { pack_name }, { force = to_force })
+        if not ok then
+            local msg = string.format("[%s] Update failed: %s", pack_name, err)
+            vim.notify(msg, vim.log.levels.ERROR)
+            return false, err
+        end
+        local spec = pack.specs.normalize
+    end
+end
+
 
 -- Safe loading with proper state management
 function BaseLoader:load_pack_safe(pack, reason, delay_ms)

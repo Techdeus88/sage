@@ -657,7 +657,8 @@ end
 -- ============================================================================
 local function display_pack_comparison(pack_name)
     local manager = require("sage.manager")
-    local pack, n_pack = manager:get_pack(pack_name)
+    local pack = manager:get_pack(pack_name)
+    local n_pack = pack:get_native()
 
     if not pack or not n_pack then
         vim.notify(string.format("[%s] Failed to retrieve pack data", pack_name), vim.log.levels.ERROR)
