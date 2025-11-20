@@ -412,8 +412,8 @@ function Dashboard:add_pack(data)
         deps = elem.ListElement.new("deps", utils.get_dep_names(n_spec.data.depends or {})),
         install_duration = elem.DurationElement.new("install_duration", Pack.times.install_duration),
         config_duration = elem.DurationElement.new("config_duration", Pack.times.config_duration),
-        message = elem.TextElement.new("message", message),
         lazy = elem.LazyElement.new("lazy", on),
+        message = elem.TextElement.new("message", message),
     }
 
     self.rows_by_name[name] = row
@@ -469,11 +469,11 @@ function Dashboard:update_line(row)
         row.status:render(),
         row.name,
         row.stage:render(),
-        row.message:render(),
         install_button,
         config_button,
         deps_text,
-        lazy_text
+        lazy_text,
+        row.message:render()
     )
     local padded = self:add_padding_to_line(line_text, 1)
 
@@ -859,7 +859,7 @@ function Dashboard:setup_keymaps()
             return
         end
 
-        self:display_pack_comparison(row.name.value)
+        self:display_pack_comparison(row.name)
     end, { buffer = self.content_buf, desc = "Toggle SagePack details" })
 end
 -- ============================================================================
