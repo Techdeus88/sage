@@ -8,7 +8,7 @@ function U.format_table(tbl, indent)
     for key, value in pairs(tbl) do
         if type(value) == "table" then
             table.insert(lines, prefix .. key .. " = {")
-            table.insert(lines, U.format_table(value, indent + 1))
+            table.insert(lines, table.concat(value, " "))
             table.insert(lines, prefix .. "}")
         else
             local val_str = type(value) == "string" and string.format('"%s"', value) or tostring(value)

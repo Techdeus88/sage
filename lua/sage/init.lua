@@ -18,16 +18,16 @@ function M.setup(opts)
     local _, config = pcall(require, "sage.base.config")
     local _, dashboard = pcall(require, "sage.ui.dashboard")
     local _, manager = pcall(require, "sage.manager")
-    
+
 
     local merged_opts = vim.tbl_deep_extend("force", config, opts)
 
     merged_opts.sage = {
         start = vim.loop.hrtime(),
     }
-    
+
     pcall(require, "sage.base.command")
-   
+
     -- Call init safely
     local d_ok, _ = pcall(function()
         dashboard:init(merged_opts.dashboard)

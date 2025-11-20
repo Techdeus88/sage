@@ -11,6 +11,107 @@ local function center_text(text, width)
     return string.rep(" ", padding) .. text
 end
 
+local function add_padding_to_line(line, padding)
+    padding = padding or 1
+    local pad = string.rep(" ", padding)
+    return string.format("%s%s%s", pad, line, pad)
+end
+
+local function format_table(tbl, indent)
+    indent = indent or 0
+    local prefix = string.rep("  ", indent)
+    local lines = {}
+    
+    for key, value in pairs(tbl) do
+        if type(value) == "table" then
+            table.insert(lines, prefix .. key .. " = {")
+            table.insert(lines, format_table(value, indent + 1))
+            table.insert(lines, prefix .. "}")
+        else
+            local val_str = type(value) == "string" and string.format('"%s"', value) or tostring(value)
+            table.insert(lines, prefix .. key .. " = " .. val_str)
+        end
+    end
+    
+    return table.concat(lines, "\n")
+end
+
+local function display_pack_comparison(pack_name)
+    local manager = require("sage.manager")
+    local pack = manager.packs[pack_name]
+    
+    local n_pack = pack:get_native()
+    
+    if not pack or not n_pack then
+        vim.notify(string.format("[%s] Failed to retrieve pack data", pack_name), vim.log.levels.ERROR)
+        return
+    end
+
+    local width = vim.o.columns
+    local height = vim.o.lines
+
+    local win_height = math.floor(height * 0.80)
+    local win_width = math.floor(width * 0.60)
+
+    local row = math.floor((height - win_height) / 2)
+    local col = math.floor((width - win_width) / 2)
+    
+    -- Build content lines
+    local lines = {}
+    table.insert(lines, "╔════════════════════════════════════════╗")
+    table.insert(lines, string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"))
+    table.insert(lines, "╚════════════════════════════════════════╝")
+    table.insert(lines, "")
+    
+    -- Pack (Manager) section
+    table.insert(lines, "📦 PACK (Manager)")
+    table.insert(lines, string.rep("─", 40))
+    if pack then
+        table.insert(lines, format_table(pack))
+    else
+        table.insert(lines, "  (nil)")
+    end
+    table.insert(lines, "")
+    
+    -- N_Pack (vim.pack) section
+    table.insert(lines, "📦 N_PACK (vim.pack.get)")
+    table.insert(lines, string.rep("─", 40))
+    if n_pack then
+        table.insert(lines, format_table(n_pack))
+    else
+        table.insert(lines, "  (nil)")
+    end
+    table.insert(lines, "")
+    
+    -- Summary
+    table.insert(lines, "━" .. string.rep("━", 38) .. "━")
+    table.insert(lines, "Press 'q' to close this buffer")
+    
+    local buf = vim.api.nvim_create_buf(false, true)
+    local win = vim.api.nvim_open_win(buf, false, {
+             relative = "editor",
+        width = win_width,
+        height = self.header_height,
+        row = row,
+        col = col,
+        style = "minimal",
+        border = { "╭", "─", "╮", "│", "", "", "", "│" },     
+    })
+
+    for i, str in ipairs(lines) do
+        lines[i] = add_padding_to_line(string.gsub(str, "[\n\r]", ""), 1)
+    end
+    
+    vim.api.nvim_buf_set_option(buf, "modifiable", true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "modifiable", false)
+    
+    -- Set close keymap
+    vim.keymap.set("n", "q", function()
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end, { buffer = buf, noremap = true, silent = true })
+end
+
 -- ============================================================================
 -- Dashboard UI Controller - Three Pane Layout
 -- ============================================================================
@@ -366,12 +467,6 @@ function Dashboard:_ensure_lines(to_line_inclusive)
     end
 end
 
-function Dashboard:add_padding_to_line(line, padding)
-    padding = padding or 1
-    local pad = string.rep(" ", padding)
-    return string.format("%s%s%s", pad, line, pad)
-end
-
 -- ============================================================================
 -- Pack Management (Get stage from the event's data object OR from the spec's on.stage opt)
 -- ============================================================================
@@ -655,71 +750,6 @@ end
 -- ============================================================================
 -- Details Expansion
 -- ============================================================================
-function Dashboard:display_pack_comparison(pack_name)
-    local manager = require("sage.manager")
-    local pack = manager:get_pack(pack_name)
-    local n_pack = pack:get_native()
-
-    if not pack or not n_pack then
-        vim.notify(string.format("[%s] Failed to retrieve pack data", pack_name), vim.log.levels.ERROR)
-        return
-    end
-
-    -- Build content lines
-    local lines = {}
-    table.insert(lines, "╔════════════════════════════════════════╗")
-    table.insert(lines, string.format("║  Sage Pack: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"))
-    table.insert(lines, "╚════════════════════════════════════════╝")
-    table.insert(lines, "")
-
-    -- Pack (Manager) section
-    table.insert(lines, "📦 PACK (Manager)")
-    table.insert(lines, string.rep("─", 40))
-    if pack then
-        table.insert(lines, format_table(pack))
-    else
-        table.insert(lines, "  (nil)")
-    end
-    table.insert(lines, "")
-
-    -- N_Pack (vim.pack) section
-    table.insert(lines, "📦 N_PACK (vim.pack.get)")
-    table.insert(lines, string.rep("─", 40))
-    if n_pack then
-        table.insert(lines, format_table(n_pack))
-    else
-        table.insert(lines, "  (nil)")
-    end
-    table.insert(lines, "")
-
-    -- Summary
-    table.insert(lines, "━" .. string.rep("━", 38) .. "━")
-    table.insert(lines, "Press 'q' to close this buffer")
-
-    -- Use snacks.nvim scratch buffer
-    local Snacks = require("snacks")
-    Snacks.scratch({
-        file = pack_name,
-        ft = "lua",
-        width = 80,
-        height = 40,
-        opts = {
-            relative = "editor",
-            style = "float",
-            border = "rounded",
-        },
-    })
-
-    -- Get the buffer and set content
-    local buf = vim.api.nvim_get_current_buf()
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.api.nvim_buf_set_option(buf, "modifiable", false)
-
-    -- Set close keymap
-    vim.keymap.set("n", "q", function()
-        vim.api.nvim_buf_delete(buf, { force = true })
-    end, { buffer = buf, noremap = true, silent = true })
-end
 
 function Dashboard:expand_details(row)
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
@@ -851,16 +881,17 @@ function Dashboard:setup_keymaps()
         end
     end, { buffer = self.content_buf, desc = "Toggle pack details" })
 
-    vim.keymap.set("n", "<S-CR>", function()
+     vim.keymap.set("n", "<A-CR>", function()
         local cursor = vim.api.nvim_win_get_cursor(0)
-        local row = self:get_row_at_line(cursor[1])
-
+        local row = dashboard:get_row_at_line(cursor[1])
+        
         if not row then
+            vim.notify("No pack selected", vim.log.levels.WARN)
             return
         end
-
-        self:display_pack_comparison(row.name)
-    end, { buffer = self.content_buf, desc = "Toggle SagePack details" })
+        
+        display_pack_comparison(row.name)
+    end, { buffer = dashboard.content_buf, silent = true, desc = "Show pack comparison" })
 end
 -- ============================================================================
 -- Window Management
@@ -912,7 +943,7 @@ function Dashboard:close()
 end
 
 -- ============================================================================
--- Event Handlers (FIXED: Removed duplicate notifications)
+-- Event Handlers
 -- ============================================================================
 function Dashboard:listen()
     Event.on("pack:created", function(data)
@@ -971,7 +1002,7 @@ function Dashboard:listen()
         self:update_line(row)
         self:resort_rows()
     end)
-    -- FIXED: Removed duplicate vim.notify calls
+
     Event.on("pack:lazy", function(data)
         local row = self:find(data.name)
         if not row then
@@ -987,7 +1018,6 @@ function Dashboard:listen()
         end
 
         self:update_line(row)
-        -- self:resort_rows()
     end)
 
     Event.on("pack:failed", function(data)
