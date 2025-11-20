@@ -20,16 +20,16 @@ end
 local function format_table(tbl, indent, max_depth)
     indent = indent or 0
     max_depth = max_depth or 3
-    
+
     -- Prevent infinite recursion
     if indent >= max_depth then
         return { "  [max depth reached]" }
     end
-    
+
     local prefix = string.rep("  ", indent)
     local lines = {}
     local count = 0
-    
+
     for key, value in pairs(tbl) do
         count = count + 1
         -- Prevent too many entries
@@ -37,9 +37,9 @@ local function format_table(tbl, indent, max_depth)
             table.insert(lines, prefix .. "  [... and more]")
             break
         end
-        
+
         local val_type = type(value)
-        
+
         if val_type == "table" then
             table.insert(lines, prefix .. key .. " = {")
             local nested = format_table(value, indent + 1, max_depth)
@@ -59,41 +59,50 @@ local function format_table(tbl, indent, max_depth)
             table.insert(lines, prefix .. key .. " = " .. tostring(value))
         end
     end
-    
+
     return lines
 end
 
 local function display_pack_comparison(pack_name)
     local manager = require("sage.manager")
     local pack = manager.packs[pack_name]
-    
+
     if not pack then
         vim.notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
         return
     end
-    
+
     local n_pack = pack:get_native()
-    
+
     if not n_pack then
         vim.notify(string.format("[%s] Failed to get native pack", pack_name), vim.log.levels.ERROR)
         return
     end
-    
+
     local width = vim.o.columns
     local height = vim.o.lines
     local win_height = math.floor(height * 0.80)
     local win_width = math.floor(width * 0.60)
     local row = math.floor((height - win_height) / 2)
     local col = math.floor((width - win_width) / 2)
-    
+
     -- Build content lines as table of strings (no newlines)
     local lines = {}
-    
-    table.insert(lines, "╔════════════════════════════════════════╗")
-    table.insert(lines, string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"))
-    table.insert(lines, "╚════════════════════════════════════════╝")
+
+    table.insert(
+        lines,
+        "╔════════════════════════════════════════╗"
+    )
+    table.insert(
+        lines,
+        string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║")
+    )
+    table.insert(
+        lines,
+        "╚════════════════════════════════════════╝"
+    )
     table.insert(lines, "")
-    
+
     -- Pack (Manager) section
     table.insert(lines, "📦 PACK (Manager)")
     table.insert(lines, string.rep("─", 40))
@@ -102,7 +111,7 @@ local function display_pack_comparison(pack_name)
         table.insert(lines, line)
     end
     table.insert(lines, "")
-    
+
     -- N_Pack (vim.pack) section
     table.insert(lines, "📦 N_PACK (vim.pack.get)")
     table.insert(lines, string.rep("─", 40))
@@ -111,11 +120,11 @@ local function display_pack_comparison(pack_name)
         table.insert(lines, line)
     end
     table.insert(lines, "")
-    
+
     -- Summary
     table.insert(lines, "━" .. string.rep("━", 38) .. "━")
     table.insert(lines, "Press 'q' to close this buffer")
-    
+
     -- Create buffer and window
     local buf = vim.api.nvim_create_buf(false, true)
     local win = vim.api.nvim_open_win(buf, false, {
@@ -128,13 +137,13 @@ local function display_pack_comparison(pack_name)
         border = { "╭", "─", "╮", "│", "╰", "─", "╯", "│" },
         zindex = 100,
     })
-    
+
     -- Add padding to each line
     local padded_lines = {}
     for _, line in ipairs(lines) do
         table.insert(padded_lines, " " .. line .. " ")
     end
-    
+
     -- Set buffer content
     vim.api.nvim_buf_set_option(buf, "modifiable", true)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
@@ -143,7 +152,7 @@ local function display_pack_comparison(pack_name)
     vim.api.nvim_buf_set_option(buf, "filetype", "lua")
 
     pcall(vim.api.nvim_set_current_win, win)
-    
+
     -- Set close keymap
     vim.keymap.set("n", "q", function()
         vim.api.nvim_buf_delete(buf, { force = true })
@@ -348,6 +357,7 @@ function Dashboard:render_header()
         "",
     }
 
+    vim.api.nvim_buf_set_option(self.header_buf, "modifiable", true)
     vim.api.nvim_buf_set_lines(self.header_buf, 0, -1, false, header_lines)
 
     -- Clear and add highlights
@@ -368,7 +378,7 @@ function Dashboard:render_header()
     end
 
     -- Make header read-only
-    vim.api.nvim_buf_set_option(self.header_buf, "modifiable", true)
+    vim.api.nvim_buf_set_option(self.header_buf, "modifiable", false)
 end
 
 -- ============================================================================
@@ -460,6 +470,7 @@ function Dashboard:render_footer()
 
     vim.api.nvim_buf_set_option(self.footer_buf, "modifiable", true)
     vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, footer_lines)
+    vim.api.nvim_buf_set_option(self.footer_buf, "modifiable", false)
 
     -- Add highlights
     vim.api.nvim_buf_clear_namespace(self.footer_buf, Dashboard.ns_footer, 0, -1)
@@ -501,7 +512,10 @@ function Dashboard:_ensure_lines(to_line_inclusive)
         for _ = 1, need do
             blanks[#blanks + 1] = ""
         end
+
+        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
         vim.api.nvim_buf_set_lines(self.content_buf, lc, lc, false, blanks)
+        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
     end
 end
 
@@ -571,6 +585,7 @@ function Dashboard:update_line(row)
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
+
     local ns = Dashboard.ns_buttons
     local l = self:bufline(row)
 
@@ -611,6 +626,7 @@ function Dashboard:update_line(row)
     local padded = add_padding_to_line(line_text, 1)
 
     -- Update buffer text
+    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
     local current_line = vim.api.nvim_buf_get_lines(self.content_buf, l, l + 1, false)[1] or ""
     vim.api.nvim_buf_set_text(self.content_buf, l, 0, l, #current_line, { padded })
 
@@ -653,6 +669,7 @@ function Dashboard:update_line(row)
         highlight_button(dep, "SageDependency", 100)
     end
 
+    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
     -- Update footer
     vim.defer_fn(function()
         self:update_footer_if_changed()
@@ -697,6 +714,7 @@ function Dashboard:rebuild_display()
         return
     end
 
+    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
     vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
 
     for i, row in ipairs(self.rows) do
@@ -715,6 +733,7 @@ function Dashboard:rebuild_display()
         self:update_line(row)
     end
 
+    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
     self:render_footer()
 end
 
@@ -726,6 +745,8 @@ function Dashboard:refresh_for_tab()
         return
     end
 
+
+    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
     vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
 
     local filter = self.tabs[self.active_tab_index].id
@@ -781,6 +802,8 @@ function Dashboard:refresh_for_tab()
         end
     end
 
+    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
+
     self:render_header()
     self:render_footer()
 end
@@ -822,7 +845,9 @@ function Dashboard:expand_details(row)
         )
     )
 
+    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
     vim.api.nvim_buf_set_lines(self.content_buf, l + 1, l + 1, false, details)
+    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
 
     row.expanded = true
     row.details_count = #details
@@ -844,7 +869,9 @@ function Dashboard:collapse_details(row)
 
     local count = row.details_count or 0
     if count > 0 then
+        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
         vim.api.nvim_buf_set_lines(self.content_buf, l + 1, l + 1 + count, false, {})
+        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
     end
 
     row.expanded = false
@@ -920,15 +947,15 @@ function Dashboard:setup_keymaps()
         end
     end, { buffer = self.content_buf, desc = "Toggle pack details" })
 
-     vim.keymap.set("n", "<A-CR>", function()
+    vim.keymap.set("n", "<A-CR>", function()
         local cursor = vim.api.nvim_win_get_cursor(0)
         local row = self:get_row_at_line(cursor[1])
-        
+
         if not row then
             vim.notify("No pack selected", vim.log.levels.WARN)
             return
         end
-        
+
         display_pack_comparison(row.name)
     end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
 end
