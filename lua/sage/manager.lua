@@ -38,6 +38,19 @@ function Manager:create_pack(spec)
     return Pack
 end
 
+function Manager:get_pack(name)
+    return self.packs[name]
+end
+
+function Manager:update_pack(name, updated_pack)
+    local pack = self.packs[name]
+    if pack then
+        self.packs[name] = updated_pack
+        updated_pack:set_status("updated")
+    end
+    return updated_pack
+end
+
 -- ============================================================================
 -- Wire Pack Tasks (Currently unused but kept for future)
 -- ============================================================================

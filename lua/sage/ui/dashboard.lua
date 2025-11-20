@@ -652,6 +652,78 @@ function Dashboard:refresh_for_tab()
     self:render_footer()
 end
 
+-- ========================================
+-- Pack comparison ========================
+-- ========================================
+local function display_pack_comparison(pack_name)
+    local manager = require("sage.manager")
+    local pack, n_pack = manager:get_pack(pack_name)
+
+    if not pack or not n_pack then
+        vim.notify(string.format("[%s] Failed to retrieve pack data", pack_name), vim.log.levels.ERROR)
+        return
+    end
+
+    -- Create scratch buffer
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+    vim.api.nvim_buf_set_option(buf, "bufhidden", "hide")
+    vim.api.nvim_buf_set_option(buf, "swapfile", false)
+    vim.api.nvim_buf_set_option(buf, "filetype", "lua")
+
+    -- Build content
+    local lines = {}
+    table.insert(
+        lines,
+        "╔════════════════════════════════════════╗"
+    )
+    table.insert(lines, string.format("║  Pack: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"))
+    table.insert(
+        lines,
+        "╚════════════════════════════════════════╝"
+    )
+    table.insert(lines, "")
+
+    -- Pack (Manager) section
+    table.insert(lines, string.format("📦 Sage Pack details: (%s)", pack_name:upper()))
+    table.insert(lines, string.rep("─", 40))
+    if pack then
+        table.insert(lines, utils.format_table(pack))
+    else
+        table.insert(lines, "  (nil)")
+    end
+    table.insert(lines, "")
+
+    -- N_Pack (vim.pack) section
+    table.insert(lines, "📦 VIM PACK (vim.pack.get)")
+    table.insert(lines, string.rep("─", 40))
+    if n_pack then
+        table.insert(lines, utils.format_table(n_pack))
+    else
+        table.insert(lines, "  (nil)")
+    end
+    table.insert(lines, "")
+
+    -- Summary
+    table.insert(lines, "━" .. string.rep("━", 38) .. "━")
+    table.insert(lines, "Press 'q' to close this buffer")
+
+    -- Set buffer content
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "modifiable", false)
+
+    -- Set keymaps for the buffer
+    local opts = { noremap = true, silent = true, buffer = buf }
+    vim.keymap.set("n", "q", function()
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end, opts)
+
+    -- Open in split
+    vim.cmd("split")
+    vim.api.nvim_set_current_buf(buf)
+    vim.api.nvim_win_set_height(0, 30)
+end
+
 -- ============================================================================
 -- Details Expansion
 -- ============================================================================
@@ -784,6 +856,18 @@ function Dashboard:setup_keymaps()
             self:expand_details(row)
         end
     end, { buffer = self.content_buf, desc = "Toggle pack details" })
+
+    vim.keymap.set("n", "<S-CR>", function()
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        local row = self:get_row_at_line(cursor[1])
+
+        if not row then
+            vim.notify("No pack selected", vim.log.levels.WARN)
+            return
+        end
+
+        display_pack_comparison(row.name)
+    end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
 end
 -- ============================================================================
 -- Window Management
