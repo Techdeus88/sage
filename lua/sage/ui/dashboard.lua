@@ -655,7 +655,7 @@ end
 -- ============================================================================
 -- Details Expansion
 -- ============================================================================
-local function display_pack_comparison(pack_name)
+function Dashboard:display_pack_comparison(pack_name)
     local manager = require("sage.manager")
     local pack = manager:get_pack(pack_name)
     local n_pack = pack:get_native()
@@ -856,12 +856,11 @@ function Dashboard:setup_keymaps()
         local row = self:get_row_at_line(cursor[1])
 
         if not row then
-            vim.notify("No pack selected", vim.log.levels.WARN)
             return
         end
 
-        display_pack_comparison(row.name)
-    end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
+        self:display_pack_comparison(row.name.value)
+    end, { buffer = self.content_buf, desc = "Toggle SagePack details" })
 end
 -- ============================================================================
 -- Window Management

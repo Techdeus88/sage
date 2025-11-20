@@ -130,7 +130,7 @@ function BaseLoader:is_pack_ready(pack)
     return pack.loaded or self:is_loading(pack)
 end
 
-fucntion BaseLoader:update_pack(pack_name, manager, to_force)
+function BaseLoader:update_pack(pack_name, manager, to_force)
     to_force = to_force or false
     local pack = manager.packs[pack_name]
     if pack then

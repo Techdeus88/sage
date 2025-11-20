@@ -48,7 +48,7 @@ function Manager:update_pack(name, updated_pack)
         self.packs[name] = updated_pack
         updated_pack:set_status("updated")
     end
-    return updated_pack
+    return self.packs[name]
 end
 
 -- ============================================================================

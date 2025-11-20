@@ -5,6 +5,7 @@ Pack.__index = Pack
 
 function Pack.new(spec)
     local self = setmetatable({}, Pack)
+
     local src = spec.src or spec[1]
     local name = spec.name or utils.extract_name(src)
     local priority = spec.priority or 100
@@ -86,22 +87,16 @@ end
 
 function Pack:set_branches(branches)
     if branches ~= nil then
-        self.branches = vim.tbl_extend("force", self.branches, branches)
+        local all_branches = vim.tbl_extend("force", self.branches, branches)
     end
-    return self.branches
+    self.branches = all_branches
 end
 
 function Pack:set_tags(tags)
     if tags ~= nil then
-        self.tags = vim.tbl_extend("force", self.tags, tags)
+        local all_tags = vim.tbl_extend("force", self.tags, tags)
     end
-    return self.tags
-end
-
-function Pack:get_path()
-    if self.path ~= "" then
-        return self.path
-    end
+    self.tags = all_tags
 end
 
 function Pack:set_stage(stage)
@@ -111,6 +106,12 @@ end
 
 function Pack:get_stage()
     return self.stage
+end
+
+function Pack:get_path()
+    if self.path ~= "" then
+        return self.path
+    end
 end
 
 function Pack:determine_stage(spec)
