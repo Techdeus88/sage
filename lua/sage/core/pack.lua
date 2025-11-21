@@ -16,6 +16,7 @@ function Pack.new(spec)
     local depends = spec.depends
     local version = spec.version
     local on = spec.on
+
     local prefix = "https://github.com/"
     local disabled = spec.enabled ~= nil and spec.enabled == false
     local stage = self:determine_stage(spec)

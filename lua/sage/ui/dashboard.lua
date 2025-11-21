@@ -17,9 +17,15 @@ local function add_padding_to_line(line, padding)
     return string.format("%s%s%s", pad, line, pad)
 end
 
-local function format_table(tbl, indent, max_depth)
+
+local base_order_keys = { { key = "enabled", label = "Enabled", spack_path = 'self', npack_path = nil } }
+
+local function format_tables(tbl_spack, tbl_npack, indent, max_depth, order_keys)
+    order_keys = order_keys or {}
     indent = indent or 0
-    max_depth = max_depth or 3
+    max_depth = max_depth or 10
+    -- local order_keys = { "enabled", "active", "stage", "priority", "src", "version", "path", "installed", "loaded" }
+    -- nil -> no path | self -> one level on self | n_spec -> means inside the normalize spec table
 
     -- Prevent infinite recursion
     if indent >= max_depth then
@@ -30,33 +36,43 @@ local function format_table(tbl, indent, max_depth)
     local lines = {}
     local count = 0
 
-    for key, value in pairs(tbl) do
+    for _, order_key in ipairs(order_keys) do
         count = count + 1
+        local label = order_key.label
+        local key = order_key.key
+        local spack_path = order_key.spack_path
+        local npack_path = order_key.npack_path
+        local spack_value = spack_path == 'self' and tbl_spack[key] or spack_path == nil and "Not found" or ""
+        local npack_value = npack_path == 'self' and tbl_npack[key] or npack_path == nil and "Not found" or ""
+
         -- Prevent too many entries
         if count > 50 then
             table.insert(lines, prefix .. "  [... and more]")
             break
         end
 
-        local val_type = type(value)
+        local sval_type = type(spack_value)
+        local nval_type = type(npack_value)
 
-        if val_type == "table" then
+        if sval_type == "table" abnd nval_type == "table" then
+            local tbl_keys = vim.tbl_keys(spack_value)
             table.insert(lines, prefix .. key .. " = {")
-            local nested = format_table(value, indent + 1, max_depth)
-            for _, line in ipairs(nested) do
+            local nested = format_table(spack_value, npack_value, indent + 1, max_depth, tbl_keys)
+            for i, line in ipairs(nested) do
                 table.insert(lines, line)
             end
             table.insert(lines, prefix .. "}")
-        elseif val_type == "string" then
+        elseif sval_type == "string" then
             -- Truncate long strings
-            local str_val = #value > 50 and value:sub(1, 47) .. "..." or value
-            table.insert(lines, prefix .. key .. " = " .. string.format('"%s"', str_val))
-        elseif val_type == "function" then
+            local spack_str_val = #spack_value > 50 and spack_value:sub(1, 47) .. "..." or spack_value
+            local npack_str_val = #npack_value > 50 and npack_value:sub(1, 47) .. "..." or npack_value
+            table.insert(lines, prefix .. key .. " = " .. string.format('"%s %s"', spack_str_val, npack_str_val))
+        elseif sval_type == "function" then
             table.insert(lines, prefix .. key .. " = <function>")
-        elseif val_type == "userdata" then
+        elseif sval_type == "userdata" then
             table.insert(lines, prefix .. key .. " = <userdata>")
         else
-            table.insert(lines, prefix .. key .. " = " .. tostring(value))
+            table.insert(lines, prefix .. key .. " = " .. tostring(spack_value) .. " " .. tostring(npack_value))
         end
     end
 
@@ -71,9 +87,7 @@ local function display_pack_comparison(pack_name)
         vim.notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
         return
     end
-
     local n_pack = pack:get_native()
-
     if not n_pack then
         vim.notify(string.format("[%s] Failed to get native pack", pack_name), vim.log.levels.ERROR)
         return
@@ -91,32 +105,31 @@ local function display_pack_comparison(pack_name)
 
     table.insert(
         lines,
-        "╔════════════════════════════════════════╗"
+        center_text(
+            "╔════════════════════════════════════════╗",
+            win_width
+        )
     )
     table.insert(
         lines,
-        string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║")
+        center_text(string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"), win_width)
     )
     table.insert(
         lines,
-        "╚════════════════════════════════════════╝"
+        center_text(
+            "╚════════════════════════════════════════╝",
+            win_width
+        )
     )
     table.insert(lines, "")
 
     -- Pack (Manager) section
-    table.insert(lines, "📦 PACK (Manager)")
-    table.insert(lines, string.rep("─", 40))
-    local pack_lines = format_table(pack, 0)
-    for _, line in ipairs(pack_lines) do
-        table.insert(lines, line)
-    end
-    table.insert(lines, "")
-
     -- N_Pack (vim.pack) section
-    table.insert(lines, "📦 N_PACK (vim.pack.get)")
-    table.insert(lines, string.rep("─", 40))
-    local n_pack_lines = format_table(n_pack, 0)
-    for _, line in ipairs(n_pack_lines) do
+    table.insert(lines, "📦 SAGE_PACK (sage.packs[name]) 📦 N_PACK (vim.pack.get)")
+    table.insert(lines, string.rep("─", 80))
+
+    local pack_lines = format_tables(pack, n_pack, 0, 10, base_order_keys)
+    for _, line in ipairs(pack_lines) do
         table.insert(lines, line)
     end
     table.insert(lines, "")
@@ -744,7 +757,6 @@ function Dashboard:refresh_for_tab()
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
-
 
     vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
     vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
