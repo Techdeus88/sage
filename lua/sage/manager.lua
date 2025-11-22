@@ -448,7 +448,7 @@ function Manager:run_packs(opts)
                 },
             })
         end)
-    end, delay * #all_specs + 100)
+    end, delay)
 end
 
 -- ============================================================================
