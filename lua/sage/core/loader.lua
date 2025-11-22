@@ -209,10 +209,84 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
     end
 end
 
--- Strategy handlers
+function BaseLoader:start(packs, manager, opts)
+    error("BaseLoader:start() must be overridden by subclasses")
+end
+
+function BaseLoader:close()
+    -- Close all timers
+    for _, timer in ipairs(self.timers) do
+        if timer and not timer:is_closing() then
+            timer:close()
+        end
+    end
+    self.timers = {}
+
+    -- Delete autocmds
+    -- for _, id in ipairs(self.autocmds) do
+    --     pcall(vim.api.nvim_del_autocmd, id)
+    -- end
+    -- self.autocmds = {}
+
+    self.loading_queue = {}
+end
+
+-- ============================================================================
+-- EagerLoader (now stage) - FIXED
+-- ============================================================================
+local EagerLoader = setmetatable({}, { __index = BaseLoader })
+EagerLoader.__index = EagerLoader
+
+function EagerLoader.new()
+    return setmetatable(BaseLoader.new(), EagerLoader)
+end
+
+function EagerLoader:start(packs, manager, opts)
+    for i, pack in ipairs(packs or {}) do
+        local delay = (i - 1) * 50
+        -- Set initial status
+        pack:set_status("loading")
+        -- Load immediately
+        self:load_pack_safe(pack, "Eager load", delay)
+    end
+end
+
+-- ============================================================================
+-- LaterLoader (later stage with strategies) - FIXED
+-- ============================================================================
+local LaterLoader = setmetatable({}, { __index = BaseLoader })
+LaterLoader.__index = LaterLoader
+
+function LaterLoader.new()
+    return setmetatable(BaseLoader.new(), LaterLoader)
+end
+
+function LaterLoader:start(packs, manager, opts)
+    -- Set initial status for all later packs BEFORE applying strategy
+    for _, pack in ipairs(packs or {}) do
+        pack:set_status("pending")
+        Event.emit("pack:config:start", {
+            name = pack.specs.normalize.name,
+            status = "pending",
+            message = "Waiting for later stage trigger",
+            pack = pack,
+        })
+    end
+
+    local strategy = (opts and opts.strategy) or "vimenter"
+    if strategy == "vimenter" then
+        self:_strategy_vimenter(packs, opts)
+    elseif strategy == "delay" then
+        self:_strategy_delay(packs, opts)
+    elseif strategy == "idle" then
+        self:_strategy_idle(packs, opts)
+    else
+        vim.notify("Unknown strategy: " .. tostring(strategy), vim.log.levels.WARN)
+    end
+end
 
 -- Strategy vimenter: loads all lazy packs on VimEnter
-function BaseLoader:_strategy_vimenter(packs, opts)
+function LaterLoader:_strategy_vimenter(packs, opts)
     local has_run = false
 
     local function load_all()
@@ -241,9 +315,8 @@ function BaseLoader:_strategy_vimenter(packs, opts)
 end
 
 -- Strategy delay: delays loading of all lazy packs
-function BaseLoader:_strategy_delay(packs, opts)
+function LaterLoader:_strategy_delay(packs, opts)
     local delay_ms = (opts and opts.delay_ms) or 500
-
     local timer = vim.loop.new_timer()
     table.insert(self.timers, timer)
 
@@ -252,7 +325,6 @@ function BaseLoader:_strategy_delay(packs, opts)
         0,
         vim.schedule_wrap(function()
             timer:close()
-
             for i, pack in ipairs(packs) do
                 local stagger = (i - 1) * 50
                 self:load_pack_safe(pack, "Delay strategy", stagger)
@@ -262,7 +334,7 @@ function BaseLoader:_strategy_delay(packs, opts)
 end
 
 -- Strategy idle: loads all lazy packs when user is idle for a set amount of seconds (default 4000)
-function BaseLoader:_strategy_idle(packs, opts)
+function LaterLoader:_strategy_idle(packs, opts)
     local idle_time_ms = (opts and opts.idle_time_ms) or 4000
     local check_interval = (opts and opts.check_interval) or 500
     local last_input_time = vim.loop.hrtime()
@@ -274,14 +346,13 @@ function BaseLoader:_strategy_idle(packs, opts)
 
         if time_since_input >= idle_time_ms and not has_started then
             has_started = true
-
             for i, pack in ipairs(packs) do
                 local delay = (i - 1) * 50
                 self:load_pack_safe(pack, "Idle strategy", delay)
             end
-
             return false -- Stop checking
         end
+
         return true -- Continue checking
     end
 
@@ -308,71 +379,9 @@ function BaseLoader:_strategy_idle(packs, opts)
     )
 end
 
-function BaseLoader:start(packs, manager, opts)
-    error("BaseLoader:start() must be overridden by subclasses")
-end
-
-function BaseLoader:close()
-    -- Close all timers
-    for _, timer in ipairs(self.timers) do
-        if timer and not timer:is_closing() then
-            timer:close()
-        end
-    end
-    self.timers = {}
-
-    -- Delete autocmds
-    -- for _, id in ipairs(self.autocmds) do
-    --     pcall(vim.api.nvim_del_autocmd, id)
-    -- end
-    -- self.autocmds = {}
-
-    self.loading_queue = {}
-end
 
 -- ============================================================================
--- EagerLoader (now stage)
--- ============================================================================
-local EagerLoader = setmetatable({}, { __index = BaseLoader })
-EagerLoader.__index = EagerLoader
-
-function EagerLoader.new()
-    return setmetatable(BaseLoader.new(), EagerLoader)
-end
-
-function EagerLoader:start(packs, manager, opts)
-    for i, pack in ipairs(packs or {}) do
-        local delay = (i - 1) * 50
-        self:load_pack_safe(pack, "Eager load", delay)
-    end
-end
-
--- ============================================================================
--- LaterLoader (later stage with strategies)
--- ============================================================================
-local LaterLoader = setmetatable({}, { __index = BaseLoader })
-LaterLoader.__index = LaterLoader
-
-function LaterLoader.new()
-    return setmetatable(BaseLoader.new(), LaterLoader)
-end
-
-function LaterLoader:start(packs, manager, opts)
-    local strategy = (opts and opts.strategy) or "vimenter"
-
-    if strategy == "vimenter" then
-        self:_strategy_vimenter(packs, opts)
-    elseif strategy == "delay" then
-        self:_strategy_delay(packs, opts)
-    elseif strategy == "idle" then
-        self:_strategy_idle(packs, opts)
-    else
-        vim.notify("Unknown strategy: " .. tostring(strategy), vim.log.levels.WARN)
-    end
-end
-
--- ============================================================================
--- LazyLoader (lazy stage with triggers and dependencies)
+-- LazyLoader (lazy stage with triggers and dependencies) - FIXED
 -- ============================================================================
 local LazyLoader = setmetatable({}, { __index = BaseLoader })
 LazyLoader.__index = LazyLoader
@@ -382,6 +391,51 @@ function LazyLoader.new()
     self.dependency_timers = {}
     self.event_listeners = {}
     return self
+end
+
+function LazyLoader:start(packs, manager, opts)
+    for _, pack in ipairs(packs or {}) do
+        local spec = pack.specs.normalize
+        local on = spec.data.on or {}
+        local name = spec.name
+
+        -- Check for dependency chain
+        local dep_chain, has_cycle = resolve_dependency_chain(pack, manager)
+        if has_cycle then
+            vim.notify(string.format("✗ Skipping '%s': circular dependency", name), vim.log.levels.ERROR)
+            pack:set_status("failed")
+        elseif #dep_chain > 0 then
+            pack:set_status("lazy")
+            self:setup_dependency_loading(pack, manager, dep_chain)
+        elseif on.before then
+            pack:set_status("lazy")
+            local before_list = type(on.before) == "table" and on.before or { on.before }
+            self:setup_before_blocking(pack, manager, before_list)
+        elseif on.after then
+            pack:set_status("lazy")
+            local after_list = type(on.after) == "table" and on.after or { on.after }
+            self:setup_after_blocking(pack, manager, after_list)
+        else
+            -- setup_standard_triggers sets the status itself
+            self:setup_standard_triggers(pack, on)
+        end
+    end
+end
+
+function LazyLoader:close()
+    -- Close dependency timers
+    for _, timer in pairs(self.dependency_timers) do
+        if timer and not timer:is_closing() then
+            timer:close()
+        end
+    end
+    self.dependency_timers = {}
+
+    -- Clear event listeners
+    self.event_listeners = {}
+
+    -- Call parent close
+    BaseLoader.close(self)
 end
 
 -- Setup dependency-based loading
@@ -638,52 +692,8 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
     return false
 end
 
--- Main entry point
-function LazyLoader:start(packs, manager, opts)
-    for _, pack in ipairs(packs or {}) do
-        local spec = pack.specs.normalize
-        local on = spec.data.on or {}
-        local name = spec.name
-
-        -- Check for dependency chain
-        local dep_chain, has_cycle = resolve_dependency_chain(pack, manager)
-
-        if has_cycle then
-            vim.notify(string.format("✗ Skipping '%s': circular dependency", name), vim.log.levels.ERROR)
-            pack:set_status("failed")
-        elseif #dep_chain > 0 then
-            self:setup_dependency_loading(pack, manager, dep_chain)
-        elseif on.before then
-            local before_list = type(on.before) == "table" and on.before or { on.before }
-            self:setup_before_blocking(pack, manager, before_list)
-        elseif on.after then
-            local after_list = type(on.after) == "table" and on.after or { on.after }
-            self:setup_after_blocking(pack, manager, after_list)
-        else
-            self:setup_standard_triggers(pack, on)
-        end
-    end
-end
-
-function LazyLoader:close()
-    -- Close dependency timers
-    for _, timer in pairs(self.dependency_timers) do
-        if timer and not timer:is_closing() then
-            timer:close()
-        end
-    end
-    self.dependency_timers = {}
-
-    -- Clear event isteners
-    -- Note: Implement Event.off() if you want proper cleanup
-    self.event_listeners = {}
-
-    -- Call parent close
-    BaseLoader.close(self)
-end
-
 -- ============================================================================
--- DisabledLoader (disabled stage)
+-- DisabledLoader (disabled stage) - FIXED
 -- ============================================================================
 local DisabledLoader = setmetatable({}, { __index = BaseLoader })
 DisabledLoader.__index = DisabledLoader
@@ -700,11 +710,12 @@ function DisabledLoader:start(packs, manager, opts)
             local delay = (i - 1) * 50
 
             pack:set_status("disabling")
+
             vim.schedule(function()
                 vim.defer_fn(function()
                     Event.emit("pack:config:start", {
                         name = name,
-                        status = pack:get_status(),
+                        status = "disabling",
                         message = "Setting to disabled",
                         pack = pack,
                     })
@@ -720,7 +731,7 @@ function DisabledLoader:start(packs, manager, opts)
                 vim.defer_fn(function()
                     Event.emit("pack:config:finish", {
                         name = name,
-                        status = pack:get_status(),
+                        status = "disabled",
                         message = "Pack disabled",
                         config_duration = pack.times.config_duration,
                         pack = pack,

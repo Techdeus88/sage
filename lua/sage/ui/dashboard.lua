@@ -18,14 +18,12 @@ local function add_padding_to_line(line, padding)
 end
 
 local base_order_keys = { { key = "enabled", label = "Enabled", spack_path = "self", npack_path = nil } }
+-- nil -> no path | self -> one level on self | n_spec -> means inside the normalize spec table
 
 local function format_tables(tbl_spack, tbl_npack, indent, max_depth, order_keys)
     order_keys = order_keys or {}
     indent = indent or 0
     max_depth = max_depth or 10
-    -- local order_keys = { "enabled", "active", "stage", "priority", "src", "version", "path", "installed", "loaded" }
-    -- nil -> no path | self -> one level on self | n_spec -> means inside the normalize spec table
-
     -- Prevent infinite recursion
     if indent >= max_depth then
         return { "  [max depth reached]" }
