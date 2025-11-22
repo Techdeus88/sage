@@ -28,12 +28,12 @@ function M.setup(opts)
     }
 
     -- Call init safely
-    local d_ok, _ = pcall(function()
+    local d_ok, err = pcall(function()
         dashboard:init(merged_opts.dashboard)
     end)
 
     if not d_ok then
-        vim.notify("sage.ui.dashboard missing `init` method", vim.log.levels.ERROR)
+        vim.notify("sage.ui.dashboard missing `:init` method" .. vim.inspect(err), vim.log.levels.ERROR)
     end
 
     -- Run packs safely
