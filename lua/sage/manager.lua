@@ -22,6 +22,7 @@ function Manager.new()
     local self = setmetatable({}, Manager)
     self.packs = {}
     self.install_times = {}
+    self.delay_time = 100
     return self
 end
 
@@ -293,12 +294,10 @@ local function should_show_dashboard(all_specs)
 end
 
 -- ============================================================================
--- Main Entry Point (FIXED: Removed debug statements)
+-- Main Entry Point
 -- ============================================================================
 function Manager:run_packs(opts)
     opts = opts or {}
-
-    -- Lazy-load dashboard to avoid circular dependency
     local Event = require("sage.core.bus")
     local Loader = require("sage.core.loader")
 
@@ -306,17 +305,14 @@ function Manager:run_packs(opts)
     local all_packs = {}
     local seen_names = {}
 
-    -- Build paths
     local pre_path = vim.fn.stdpath("config") .. "/lua"
     local specs_path = pre_path .. (opts.directory or "/packs")
 
-    -- Check if directory exists
     if vim.fn.isdirectory(specs_path) == 0 then
         vim.notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
         return all_specs
     end
 
-    -- Load spec files
     local spec_files = utils.get_lua_files_recursive_opts(specs_path, {
         exclude_dirs = { "configs", "tests", "spec", "node_modules", ".git" },
     })
@@ -326,14 +322,12 @@ function Manager:run_packs(opts)
         return all_specs
     end
 
-    -- Parse specs
     for _, file in ipairs(spec_files) do
         local success, file_specs = pcall(dofile, file)
         if success and file_specs and type(file_specs) == "table" then
             for _, spec in ipairs(file_specs) do
                 local src = spec.src or spec[1]
                 local name = spec.name or utils.extract_name(src)
-
                 if not seen_names[name] then
                     seen_names[name] = true
                     table.insert(all_specs, spec)
@@ -354,7 +348,6 @@ function Manager:run_packs(opts)
         return all_specs
     end
 
-    -- Show dashboard if needed (lazy-load to avoid circular dep)
     if opts.dashboard == "smart" and should_show_dashboard(all_specs) then
         local ok, Dashboard = pcall(require, "sage.ui.dashboard")
         if ok then
@@ -367,35 +360,13 @@ function Manager:run_packs(opts)
         end
     end
 
-    -- Create packs
     local delay = 75
-    for i, spec in ipairs(all_specs) do
-        local Pack = self:create_pack(spec)
-        local name = Pack.specs.normalize.name
+    local total_to_create = #all_specs
+    local created_count = 0
+    local barrier_fired = false
+    local timeout_timer = nil
 
-        Pack:set_status("created")
-        self.packs[name] = Pack
-        table.insert(all_packs, Pack)
-
-        -- Emit pack created event
-        vim.schedule(function()
-            vim.defer_fn(function()
-                Event.emit("pack:created", {
-                    name = name,
-                    stage = Pack:get_stage(),
-                    status = Pack:get_status(),
-                    pack = Pack,
-                    message = "Creating pack",
-                })
-            end, delay * i)
-        end)
-    end
-
-    -- Process packs after creation events
-    vim.defer_fn(function()
-        Event.emit("pack:all_created", { num_packs = #all_packs })
-
-        -- Sort packs by stage
+    local function process_packs()
         local sorted = utils.sort_packs(all_packs)
         local by_stage = {
             now = sorted["now"] or {},
@@ -404,22 +375,19 @@ function Manager:run_packs(opts)
             disabled = sorted["disabled"] or {},
         }
 
-        -- Stage-by-stage installation and loading
         local function process_stage(stage_name, packs, load_immediately)
             if #packs == 0 then
                 return
             end
-
             local install_ok = self:install_activate(packs)
             if not install_ok then
                 vim.notify(string.format("Stage '%s' installation failed", stage_name), vim.log.levels.ERROR)
                 return
             end
-
-            -- Load packs
             if load_immediately then
                 local ok, err = pcall(Loader.run, stage_name, packs, self, opts)
                 if not ok then
+                    o
                     vim.notify(
                         string.format("Stage '%s' loading failed: %s", stage_name, tostring(err)),
                         vim.log.levels.ERROR
@@ -428,17 +396,14 @@ function Manager:run_packs(opts)
             end
         end
 
-        -- Process stages in order
         process_stage("now", by_stage.now, true)
         process_stage("lazy", by_stage.lazy, true)
         process_stage("later", by_stage.later, true)
         process_stage("disabled", by_stage.disabled, true)
 
-        -- Emit completion
         vim.schedule(function()
-            local total_duration = vim.loop.hrtime() - vim.loop.hrtime()
             Event.emit("pack:complete", {
-                duration = total_duration,
+                duration = 0,
                 num_packs = #all_packs,
                 by_stage = {
                     now = #by_stage.now,
@@ -448,7 +413,116 @@ function Manager:run_packs(opts)
                 },
             })
         end)
-    end, delay)
+    end
+
+    local function create_barrier()
+        if barrier_fired then
+            return
+        end
+        barrier_fired = true
+        if timeout_timer then
+            timeout_timer:stop()
+        end
+        vim.schedule(function()
+            Event.emit("pack:all_created", { num_packs = total_to_create })
+            process_packs()
+        end)
+    end
+
+ -- Set a timeout (e.g., 10 seconds) to prevent hanging
+    timeout_timer = vim.loop.new_timer()
+    timeout_timer:start(delay * total_to_create + 1000, 0, function()
+        if not barrier_fired then
+            vim.notify(
+                string.format("Pack creation timeout: %d/%d created", created_count, total_to_create),
+                vim.log.levels.WARN
+
+            )
+            create_barrier()
+        end
+    end)
+
+    for i, spec in ipairs(all_specs) do
+        local Pack = self:create_pack(spec)
+        local name = Pack.specs.normalize.name
+        Pack:set_status("created")
+        self.packs[name] = Pack
+        table.insert(all_packs, Pack)
+
+        vim.schedule(function()
+            vim.defer_fn(function()
+                Event.emit("pack:created", {
+                    name = name,
+                    stage = Pack:get_stage(),
+                    status = Pack:get_status(),
+                    pack = Pack,
+                    message = "Creating pack",
+                })
+                 created_count = created_count + 1
+                if created_count == total_to_create then
+                    create_barrier()
+                end
+            end, delay * i)
+        end)
+    end
+
+    -- Process packs after creation events
+    -- vim.defer_fn(function()
+    -- Event.emit("pack:all_created", { num_packs = #all_packs })
+    -- Sort packs by stage
+    -- local sorted = utils.sort_packs(all_packs)
+    -- local by_stage = {
+    --     now = sorted["now"] or {},
+    --     later = sorted["later"] or {},
+    --     lazy = sorted["lazy"] or {},
+    --     disabled = sorted["disabled"] or {},
+    -- }
+    --
+    -- -- Stage-by-stage installation and loading
+    -- local function process_stage(stage_name, packs, load_immediately)
+    --     if #packs == 0 then
+    --         return
+    --     end
+    --
+    --     local install_ok = self:install_activate(packs)
+    --     if not install_ok then
+    --         vim.notify(string.format("Stage '%s' installation failed", stage_name), vim.log.levels.ERROR)
+    --         return
+    --     end
+    --
+    --     -- Load packs
+    --     if load_immediately then
+    --         local ok, err = pcall(Loader.run, stage_name, packs, self, opts)
+    --         if not ok then
+    --             vim.notify(
+    --                 string.format("Stage '%s' loading failed: %s", stage_name, tostring(err)),
+    --                 vim.log.levels.ERROR
+    --             )
+    --         end
+    --     end
+    -- end
+    --
+    -- -- Process stages in order
+    -- process_stage("now", by_stage.now, true)
+    -- process_stage("lazy", by_stage.lazy, true)
+    -- process_stage("later", by_stage.later, true)
+    -- process_stage("disabled", by_stage.disabled, true)
+    --
+    -- -- Emit completion
+    -- vim.schedule(function()
+    --     local total_duration = vim.loop.hrtime() - vim.loop.hrtime()
+    --     Event.emit("pack:complete", {
+    --         duration = total_duration,
+    --         num_packs = #all_packs,
+    --         by_stage = {
+    --             now = #by_stage.now,
+    --             later = #by_stage.later,
+    --             lazy = #by_stage.lazy,
+    --             disabled = #by_stage.disabled,
+    --         },
+    --     })
+    -- end)
+    -- end, delay)
 end
 
 -- ============================================================================

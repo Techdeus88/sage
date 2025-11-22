@@ -987,8 +987,8 @@ function Dashboard:open()
         self:create_three_pane_layout()
         self:render_header()
         self:render_footer()
-        -- self:listen()
-        -- self:setup_keymaps()
+        self:listen()
+        self:setup_keymaps()
     end)
 
     if not ok then
@@ -1259,9 +1259,6 @@ function Dashboard:init(opts)
     vim.api.nvim_create_user_command("SageCleanup", function()
         vim.api.nvim_exec_autocmds("VimLeavePre", {})
     end, { desc = "Trigger Sage cleanup" })
-
-    self:listen()
-    self:setup_keymaps()
 end
 
 -- Helper to adjust color brightness (optional)
