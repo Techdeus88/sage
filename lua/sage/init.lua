@@ -16,6 +16,7 @@ local M = {}
 
 function M.setup(opts)
     local _, global = pcall(require, "sage.base.global")
+    local _, _ = pcall(require, "sage.base.command")
     local _, config = pcall(require, "sage.base.config")
     local _, dashboard = pcall(require, "sage.ui.dashboard")
     local _, manager = pcall(require, "sage.manager")
@@ -25,8 +26,6 @@ function M.setup(opts)
     merged_opts.sage = {
         start = vim.loop.hrtime(),
     }
-
-    pcall(require, "sage.base.command")
 
     -- Call init safely
     local d_ok, _ = pcall(function()

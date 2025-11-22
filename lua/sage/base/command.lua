@@ -3,8 +3,7 @@ vim.api.nvim_create_autocmd("VimEnter", {
     pattern = "*",
     once = true,
     callback = function()
-        local start = vim.loop.hrtime()
-        local time_duration = (vim.loop.hrtime() - start) / 1e6
+        local time_duration = string.format("%.2f", (vim.loop.hrtime() - SageGlobal.start) / 1e6)
         local api = require("sage.api")
         api:track_event("vimenter", time_duration)
     end,
@@ -14,8 +13,7 @@ vim.api.nvim_create_autocmd("UiEnter", {
     pattern = "*",
     once = true,
     callback = function()
-        local start = vim.loop.hrtime()
-        local time_duration = string.format("%.2f", (vim.loop.hrtime() - start) / 1e6)
+        local time_duration = string.format("%.2f", (vim.loop.hrtime() - SageGlobal.start) / 1e6)
         local api = require("sage.api")
         api:track_event("uienter", time_duration)
     end,

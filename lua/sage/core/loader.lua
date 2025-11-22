@@ -757,8 +757,8 @@ function Loader.run(stage, packs, manager, opts)
     end
 end
 
-function Loader.close_all()
-    for _, loader in pairs(Loader) do
+function Loader:close_all()
+    for _, loader in pairs(self) do
         if type(loader.close) == "function" then
             pcall(function()
                 loader:close()

@@ -17,6 +17,7 @@ local function add_padding_to_line(line, padding)
     return string.format("%s%s%s", pad, line, pad)
 end
 
+
 local base_order_keys = { { key = "enabled", label = "Enabled", spack_path = "self", npack_path = nil } }
 
 local function format_tables(tbl_spack, tbl_npack, indent, max_depth, order_keys)
@@ -439,10 +440,11 @@ function Dashboard:render_footer()
     local win_width = vim.api.nvim_win_get_width(self.footer_win)
     local stats = self:get_stats()
 
-    local ui_enter_time = "0.00ms"
+    local ui_enter_time
     local ok, sage_api = pcall(require, "sage.api")
     if ok then
         ui_enter_time = sage_api:get_event("uienter")
+        print(ui_enter_time)
     end
 
     -- Calculate progress
@@ -472,7 +474,7 @@ function Dashboard:render_footer()
                 stats.lazy,
                 stats.failed,
                 stats.disabled,
-                ui_enter_time
+                sage_api:get_event("uienter")
             ),
             win_width
         ),
@@ -1255,7 +1257,7 @@ function Dashboard:init(opts)
     -- USER COMMANDS (Don't create :Sage here to avoid circular dependency)
     -- ========================================================================
     vim.api.nvim_create_user_command("SageReload", function()
-        require("sage.core.loader").close_all()
+        require("sage.core.loader"):close_all()
         Dashboard:close()
         vim.notify("Sage: loaders and dashboard cleaned up.", vim.log.levels.INFO)
     end, { desc = "Reload Sage loaders and dashboard" })
