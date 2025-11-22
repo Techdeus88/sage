@@ -15,8 +15,8 @@ end
 local M = {}
 
 function M.setup(opts)
-    local _, global = pcall(require, "sage.base.global")
-    local _, _ = pcall(require, "sage.base.command")
+    pcall(require, "sage.base.global")
+    pcall(require, "sage.base.command")
     local _, config = pcall(require, "sage.base.config")
     local _, dashboard = pcall(require, "sage.ui.dashboard")
     local _, manager = pcall(require, "sage.manager")

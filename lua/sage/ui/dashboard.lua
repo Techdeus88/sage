@@ -17,7 +17,6 @@ local function add_padding_to_line(line, padding)
     return string.format("%s%s%s", pad, line, pad)
 end
 
-
 local base_order_keys = { { key = "enabled", label = "Enabled", spack_path = "self", npack_path = nil } }
 
 local function format_tables(tbl_spack, tbl_npack, indent, max_depth, order_keys)
@@ -440,12 +439,7 @@ function Dashboard:render_footer()
     local win_width = vim.api.nvim_win_get_width(self.footer_win)
     local stats = self:get_stats()
 
-    local ui_enter_time
     local ok, sage_api = pcall(require, "sage.api")
-    if ok then
-        ui_enter_time = sage_api:get_event("uienter")
-        print(ui_enter_time)
-    end
 
     -- Calculate progress
     local progress_pct = stats.total > 0 and ((stats.loaded + stats.lazy + stats.disabled) / stats.total * 100) or 0
@@ -993,8 +987,8 @@ function Dashboard:open()
         self:create_three_pane_layout()
         self:render_header()
         self:render_footer()
-        self:listen()
-        self:setup_keymaps()
+        -- self:listen()
+        -- self:setup_keymaps()
     end)
 
     if not ok then
@@ -1265,6 +1259,9 @@ function Dashboard:init(opts)
     vim.api.nvim_create_user_command("SageCleanup", function()
         vim.api.nvim_exec_autocmds("VimLeavePre", {})
     end, { desc = "Trigger Sage cleanup" })
+
+    self:listen()
+    self:setup_keymaps()
 end
 
 -- Helper to adjust color brightness (optional)

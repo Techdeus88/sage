@@ -360,7 +360,7 @@ function Manager:run_packs(opts)
         if ok then
             Dashboard:open()
         end
-    elseif opts.dashboard == true then
+    elseif opts.dashboard == "simple" then
         local ok, Dashboard = pcall(require, "sage.ui.dashboard")
         if ok then
             Dashboard:open()

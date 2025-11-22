@@ -3,7 +3,8 @@ vim.api.nvim_create_autocmd("VimEnter", {
     pattern = "*",
     once = true,
     callback = function()
-        local time_duration = string.format("%.2f", (vim.loop.hrtime() - SageGlobal.start) / 1e6)
+        local start_time = _G.SageGlobal.start
+        local time_duration = string.format("%.2f", (vim.loop.hrtime() - start_time) / 1e6)
         local api = require("sage.api")
         api:track_event("vimenter", time_duration)
     end,
@@ -13,7 +14,8 @@ vim.api.nvim_create_autocmd("UiEnter", {
     pattern = "*",
     once = true,
     callback = function()
-        local time_duration = string.format("%.2f", (vim.loop.hrtime() - SageGlobal.start) / 1e6)
+        local start_time = _G.SageGlobal.start
+        local time_duration = string.format("%.2f", (vim.loop.hrtime() - start_time) / 1e6)
         local api = require("sage.api")
         api:track_event("uienter", time_duration)
     end,
@@ -120,7 +122,7 @@ vim.api.nvim_create_autocmd("PackChanged", {
             bus:emit("pack:delete:finish", {
                 name = n_spec.name,
                 status = Pack:get_status(),
-                message = "Delete completed',
+                message = "Delete completed",
             }, "manager:delete")
         end
 
