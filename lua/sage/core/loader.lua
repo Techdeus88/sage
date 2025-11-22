@@ -115,7 +115,6 @@ function BaseLoader.new()
     local self = setmetatable({}, BaseLoader)
     self.loading_queue = {}
     self.timers = {} -- Track all timers for cleanup
-    self.autocmds = {} -- Track autocmds for cleanup
     return self
 end
 
@@ -231,12 +230,11 @@ function BaseLoader:_strategy_vimenter(packs, opts)
     end
 
     if vim.fn.has("vim_starting") == 1 then
-        local id = vim.api.nvim_create_autocmd("VimEnter", {
+        vim.api.nvim_create_autocmd("VimEnter", {
             once = true,
             callback = load_all,
             desc = "Load later-stage plugins on VimEnter",
         })
-        table.insert(self.autocmds, id)
     else
         load_all()
     end
@@ -288,13 +286,12 @@ function BaseLoader:_strategy_idle(packs, opts)
     end
 
     -- Track user input
-    local id = vim.api.nvim_create_autocmd({ "CursorMoved", "TextChanged", "TextChangedI", "CmdlineEnter" }, {
+    vim.api.nvim_create_autocmd({ "CursorMoved", "TextChanged", "TextChangedI", "CmdlineEnter" }, {
         callback = function()
             last_input_time = vim.loop.hrtime()
         end,
         desc = "Track idle loader input",
     })
-    table.insert(self.autocmds, id)
 
     -- Start idle timer
     local timer = vim.loop.new_timer()
@@ -325,10 +322,10 @@ function BaseLoader:close()
     self.timers = {}
 
     -- Delete autocmds
-    for _, id in ipairs(self.autocmds) do
-        pcall(vim.api.nvim_del_autocmd, id)
-    end
-    self.autocmds = {}
+    -- for _, id in ipairs(self.autocmds) do
+    --     pcall(vim.api.nvim_del_autocmd, id)
+    -- end
+    -- self.autocmds = {}
 
     self.loading_queue = {}
 end
@@ -537,14 +534,13 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
     if events then
         local evts = type(events) == "table" and events or { events }
         for _, evt in ipairs(evts) do
-            local id = vim.api.nvim_create_autocmd(evt, {
+            vim.api.nvim_create_autocmd(evt, {
                 callback = function()
                     trigger_load("event", evt)
                     return true
                 end,
                 desc = string.format("Load %s on %s", name, evt),
             })
-            table.insert(self.autocmds, id)
         end
 
         pack:set_status("lazy")
@@ -562,7 +558,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
     if fts then
         local filetypes = type(fts) == "table" and fts or { fts }
         for _, ft in ipairs(filetypes) do
-            local id = vim.api.nvim_create_autocmd("FileType", {
+            vim.api.nvim_create_autocmd("FileType", {
                 pattern = ft,
                 callback = function(evt)
                     if vim.bo[evt.buf].filetype == ft then
@@ -572,7 +568,6 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
                 end,
                 desc = string.format("Load %s on filetype %s", name, ft),
             })
-            table.insert(self.autocmds, id)
         end
 
         pack:set_status("lazy")
