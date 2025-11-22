@@ -17,8 +17,7 @@ local function add_padding_to_line(line, padding)
     return string.format("%s%s%s", pad, line, pad)
 end
 
-
-local base_order_keys = { { key = "enabled", label = "Enabled", spack_path = 'self', npack_path = nil } }
+local base_order_keys = { { key = "enabled", label = "Enabled", spack_path = "self", npack_path = nil } }
 
 local function format_tables(tbl_spack, tbl_npack, indent, max_depth, order_keys)
     order_keys = order_keys or {}
@@ -42,8 +41,8 @@ local function format_tables(tbl_spack, tbl_npack, indent, max_depth, order_keys
         local key = order_key.key
         local spack_path = order_key.spack_path
         local npack_path = order_key.npack_path
-        local spack_value = spack_path == 'self' and tbl_spack[key] or spack_path == nil and "Not found" or ""
-        local npack_value = npack_path == 'self' and tbl_npack[key] or npack_path == nil and "Not found" or ""
+        local spack_value = spack_path == "self" and tbl_spack[key] or spack_path == nil and "Not found" or ""
+        local npack_value = npack_path == "self" and tbl_npack[key] or npack_path == nil and "Not found" or ""
 
         -- Prevent too many entries
         if count > 50 then
@@ -54,7 +53,7 @@ local function format_tables(tbl_spack, tbl_npack, indent, max_depth, order_keys
         local sval_type = type(spack_value)
         local nval_type = type(npack_value)
 
-        if sval_type == "table" abnd nval_type == "table" then
+        if sval_type == "table" and nval_type == "table" then
             local tbl_keys = vim.tbl_keys(spack_value)
             table.insert(lines, prefix .. key .. " = {")
             local nested = format_table(spack_value, npack_value, indent + 1, max_depth, tbl_keys)
@@ -112,7 +111,10 @@ local function display_pack_comparison(pack_name)
     )
     table.insert(
         lines,
-        center_text(string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"), win_width)
+        center_text(
+            string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"),
+            win_width
+        )
     )
     table.insert(
         lines,
@@ -1229,25 +1231,25 @@ function Dashboard:init(opts)
     -- ========================================================================
     -- -- COLORSCHEME AUTOCMD (Reapply on colorscheme change)
     -- -- ========================================================================
-    -- vim.api.nvim_create_autocmd("ColorScheme", {
-    -- 	pattern = "*",
-    -- 	callback = function()
-    -- 		vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
-    -- 		vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
-    -- 	end,
-    -- 	desc = "Reapply Sage dashboard highlights on colorscheme change",
-    -- })
+    vim.api.nvim_create_autocmd("ColorScheme", {
+        pattern = "*",
+        callback = function()
+            vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
+            vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
+            vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
+            vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
+            vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
+            vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
+            vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
+            vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
+            vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
+            vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
+            vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
+            vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
+            vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
+        end,
+        desc = "Reapply Sage dashboard highlights on colorscheme change",
+    })
     --
     -- ========================================================================
     -- USER COMMANDS (Don't create :Sage here to avoid circular dependency)
