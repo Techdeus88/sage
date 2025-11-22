@@ -1,5 +1,11 @@
 local U = {}
 
+local function U.safe_notify(msg, level)
+    vim.schedule(function()
+        vim.notify(msg, level)
+    end)
+end
+
 function U.format_table(tbl, indent)
     indent = indent or 0
     local prefix = string.rep("  ", indent)

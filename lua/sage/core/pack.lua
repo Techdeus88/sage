@@ -36,6 +36,7 @@ function Pack.new(spec)
     }
 
     -- vim.pack specific
+    self.lifecycle = nil
     self.active = false
     self.path = ""
     self.rev = ""
@@ -146,9 +147,15 @@ function Pack:determine_stage(spec)
 end
 
 function Pack:set_status(status)
+    local pack_name = self.specs.normalize.name
     local curr_status = self.status
     if curr_status ~= status then
         self.status = status
+        require("sage.core.bus").emit("pack:status:change", {
+            name = pack_name,
+            prev_status = curr_status,
+            new_status = status,
+        })
         return true, self.status
     end
     return false, self.status
@@ -172,4 +179,45 @@ function Pack:get_native()
     end
 end
 
+function Pack:get_task_progress()
+    if not self.lifecycle then
+        return { total = 0, completed = 0, required_completed = 0, required_total = 0, percentage = 0 }
+    end
+    return self.lifecycle:get_progress()
+end
+
+function Pack:get_current_task()
+    if not self.lifecycle then
+        return nil
+    end
+    local task, _ = self.lifecycle:get_next_runnable_task()
+    return task
+end
+
+function Pack:get_all_tasks()
+    if not self.lifecycle then
+        return {}
+    end
+    local tasks = {}
+    for _, task_id in ipairs(self.lifecycle.task_order) do
+        table.insert(tasks, self.lifecycle.tasks[task_id])
+    end
+    return tasks
+end
+
+function Pack:run_tasks()
+    if not self.lifecycle then
+        return false, "no lifecycle"
+    end
+    return self.lifecycle:run_next()
+end
+
+function Pack:is_lifecycle_complete()
+    if not self.lifecycle then
+        return false
+    end
+    return self.lifecycle.completed
+end
+
 return Pack
+

@@ -30,11 +30,10 @@ end
 -- ============================================================================
 function Manager:create_pack(spec)
     local pack = require("sage.core.pack")
-    local PackLifecycle = require("sage.core.lifecycle")
-
+    local TaskSystem = require("sage.core.task")
     local Pack = pack.new(spec)
-    Pack.lifecycle = PackLifecycle.new(Pack)
-
+    -- Wire the task system
+    TaskSystem.wire_pack(Pack)
     return Pack
 end
 
@@ -125,11 +124,12 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         local name = pack.specs.normalize.name
         pack:set_status("installing")
         vim.schedule(function()
+            pack:run_tasks()
             Event.emit("pack:install:start", {
-                    name = name,
-                    status = "installing",
-                    message = "Installation starting",
-                    pack = pack,
+                name = name,
+                status = "installing",
+                message = "Installation starting",
+                pack = pack,
             })
         end)
     end
@@ -144,7 +144,9 @@ function Manager:install_activate_batch(pack_groups, on_complete)
             local pack = self.packs[pack_name]
 
             if not pack then
-                vim.notify(string.format("Pack '%s' not found in manager", pack_name), vim.log.levels.WARN)
+                vim.schedule(function()
+                    vim.notify(string.format("Pack '%s' not found in manager", pack_name), vim.log.levels.WARN)
+                end)
                 table.insert(failed_packs, pack_name)
                 install_finish_count = install_finish_count + 1
 
@@ -210,7 +212,9 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     })
 
     if not ok then
+     vim.schedule(function()
         vim.notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
+    end)
 
         -- Mark all as failed
         for _, pack in ipairs(all_packs) do
@@ -238,6 +242,39 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         return false
     end
 
+    -- Schedule build commands to run after all packs are loaded
+    vim.schedule(function()
+        vim.defer_fn(function()
+            for _, pack in ipairs(all_packs) do
+                local original_spec = pack.specs.normalize
+                if original_spec.data.build then
+                    local name = original_spec.name
+                    print(string.format("[BUILD] Running build for %s", name))
+
+                    local ok_build, err_build = pcall(function()
+                        if type(original_spec.build) == "string" then
+                            -- It's a command
+                            vim.cmd(original_spec.build)
+                        elseif type(original_spec.build) == "function" then
+                            -- It's a function
+                            original_spec.build()
+                        end
+                    end)
+
+                    if not ok_build then
+                        vim.notify(
+                            string.format("[%s] Build failed: %s", name, tostring(err_build)),
+                            vim.log.levels.WARN
+                        )
+                        print(string.format("[BUILD] ERROR for %s: %s", name, tostring(err_build)))
+                    else
+                        print(string.format("[BUILD] Success for %s", name))
+                    end
+                end
+            end
+        end, 500)  -- Defer build by 500ms to ensure everything is loaded
+    end)
+
     return true
 end
 
@@ -262,13 +299,13 @@ function Manager:install_activate(packs)
     -- Emit start events
     for i, pack in ipairs(packs) do
         local name = pack.specs.normalize.name
-        pack:set_status("installing")
+        -- pack:set_status("installing")
 
         vim.schedule(function()
             vim.defer_fn(function()
                 Event.emit("pack:install:start", {
                     name = name,
-                    status = "installing",
+                    status = pack:get_status(),
                     message = "Installation starting",
                     pack = pack,
                 })
@@ -305,7 +342,9 @@ function Manager:install_activate(packs)
     })
 
     if not ok then
-        vim.notify(string.format("Installation failed: %s", tostring(err)), vim.log.levels.ERROR)
+        vim.schedule(function()
+            vim.notify(string.format("Installation failed: %s", tostring(err)), vim.log.levels.ERROR)
+        end)
 
         for _, pack in ipairs(packs) do
             pack.installed = false

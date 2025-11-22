@@ -9,20 +9,8 @@ local Event = require("sage.core.bus")
 local function load_pack(pack, config_start)
     local n_spec = pack.specs.normalize
     local config = n_spec.data.config
-    local before = n_spec.data.before
-    local after = n_spec.data.after
 
-    -- Execute before hook
-    if before and type(before) == "function" then
-        local ok, err = pcall(before)
-        if not ok then
-            local msg = string.format("[%s] Before hook failed: %s", n_spec.name, err)
-            vim.notify(msg, vim.log.levels.ERROR)
-            return false, err
-        end
-    end
-
-    -- Execute config
+    -- Execute config (before/after now handled by tasks)
     if type(config) == "function" then
         local ok, err = pcall(config)
         if not ok then
@@ -33,19 +21,8 @@ local function load_pack(pack, config_start)
         end
     end
 
-    -- Record timing
     pack.times = pack.times or {}
     pack.times.config_duration = string.format("%.2f", (vim.loop.hrtime() - config_start) / 1e6)
-
-    -- Execute after hook
-    if after and type(after) == "function" then
-        local ok, err = pcall(after)
-        if not ok then
-            local msg = string.format("[%s] After hook failed: %s", n_spec.name, err)
-            vim.notify(msg, vim.log.levels.ERROR)
-            return false, err
-        end
-    end
 
     return true, "success"
 end
@@ -182,6 +159,7 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
 
         -- Emit finish event
         vim.schedule(function()
+            pack:run_tasks()
             vim.defer_fn(function()
                 Event.emit("pack:config:finish", {
                     name = name,
@@ -191,6 +169,14 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
                     pack = pack,
                 })
             end, delay_ms + 50)
+        end)
+
+        -- **ADD THIS NEW BLOCK**:
+        -- Advance task lifecycle after successful config
+        vim.schedule(function()
+            vim.defer_fn(function()
+                pack:run_tasks()
+            end, delay_ms + 100)
         end)
 
         return true, "success"

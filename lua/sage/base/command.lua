@@ -1,4 +1,3 @@
-
 vim.api.nvim_create_autocmd("VimEnter", {
     pattern = "*",
     once = true,
@@ -24,111 +23,84 @@ vim.api.nvim_create_autocmd("UiEnter", {
 vim.api.nvim_create_autocmd("PackChangedPre", {
     group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
     callback = function(event)
-        local bus = require("sage.core.bus")
         local kind = event.data.kind
         local spec = event.data.spec
         local name = spec.name
-
         local sage_manager = require("sage.manager")
         local Pack = sage_manager.packs[name]
+
+        if not Pack then
+            return -- Pack not in our system, skip
+        end
+
         local n_spec = Pack.specs.normalize
 
         if kind == "install" then
-            Pack:set_status("installing")
-            bus:emit("pack:install:start", {
-                name = n_spec.name,
-                status = Pack:get_status(),
-                message = "Installing",
-            }, "manager:install")
-        elseif kind == "delete" then
-            local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", s2) == 1
+            local confirmed = vim.fn.confirm("Install plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
             if not confirmed then
-                error("Deletion cancelled for " .. n_spec.name) -- Aborts the delete
+                error("Install cancelled for " .. n_spec.name)
             end
-
+            Pack:set_status("installing")
+        elseif kind == "delete" then
+            local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
+            if not confirmed then
+                error("Deletion cancelled for " .. n_spec.name)
+            end
             Pack:set_status("deleting")
-            bus:emit("pack:delete:start", {
-                name = n_spec.name,
-                status = Pack:get_status(),
-                message = "Deleting",
-            }, "manager:delete")
-            vim.notify("Deleting: " .. n_spec.name .. " at " .. event.data.path, vim.log.levels.WARN)
         elseif kind == "update" then
             local confirmed = vim.fn.confirm("Update plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
             if not confirmed then
-                error("Update cancelled for " .. n_spec.name) -- Aborts the delete
+                error("Update cancelled for " .. n_spec.name)
             end
-
             Pack:set_status("updating")
-            bus:emit("pack:update:start", {
-                name = n_spec.name,
-                status = Pack:get_status(),
-                message = "Updating",
-            }, "manager:update")
-            vim.notify("Updating: " .. n_spec.name .. " at " .. event.data.path, vim.log.levels.WARN)
         end
-
-        vim.notify(string.format("Processed Pre %s: %s", n_spec.name, kind), vim.log.levels.INFO)
     end,
 })
 
 vim.api.nvim_create_autocmd("PackChanged", {
     group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
     callback = function(ev)
-        local bus = require("sage.core.bus")
         local kind = ev.data.kind
         local spec = ev.data.spec
         local pack_path = ev.data.path
         local name = spec.name
         local sage_manager = require("sage.manager")
         local Pack = sage_manager.packs[name]
-        local n_spec = Pack.specs.normalize
 
-        if kind == "install" then
-            vim.notify("Install complete: ", spec.name, vim.log.levels.DEBUG, { title = "Sage Debug" })
-            Pack:set_status("installed")
-            Pack:set_path(pack_path)
-
-            bus:emit("pack:install:finish", {
-                name = n_spec.name,
-                status = Pack:get_status(),
-                message = "Install completed",
-            }, "manager:install")
-
-            -- temporarily change directory
-            local old_cwd = vim.fn.getcwd()
-            pcall(vim.fn.chdir, pack_path)
-
-            if n_spec and n_spec.data.build then
-                local ok, _ = pcall(n_spec.data.build)
-                if not ok then
-                    vim.notify(string.format("Failed to build %s", n_spec.name), vim.log.levels.ERROR)
-                end
-                if ok then
-                    vim.notify(string.format("Built %s", n_spec.name), vim.log.levels.INFO)
-                end
-            end
-            -- restore
-            pcall(vim.fn.chdir, old_cwd)
-        elseif kind == "update" then
-            Pack:set_status("updated")
-            bus:emit("pack:update:finish", {
-                name = n_spec.name,
-                message = "Update completed",
-                status = "Update complete",
-            }, "manager:update")
-        elseif kind == "delete" then
-            Pack:set_status("deleted")
-            bus:emit("pack:delete:finish", {
-                name = n_spec.name,
-                status = Pack:get_status(),
-                message = "Delete completed",
-            }, "manager:delete")
+        if not Pack then
+            return -- Pack not in our system, skip
         end
 
-        vim.notify(string.format("Processed %s: %s", n_spec.name, kind), vim.log.levels.INFO)
+        local n_spec = Pack.specs.normalize
+        local Event = require("sage.core.bus")
+
+        if kind == "install" then
+            Pack:set_path(pack_path)
+            vim.notify(string.format("✓ Installed %s", n_spec.name), vim.log.levels.INFO)
+            -- NOTE: Build handling moved to install_activate_batch for consistency
+            -- Manual builds should be run separately or as part of pack config
+
+        elseif kind == "update" then
+            Pack:set_status("updated")
+            vim.notify(string.format("✓ Updated %s", n_spec.name), vim.log.levels.INFO)
+            Event.emit("pack:updated", {
+                name = name,
+                status = "updated",
+                pack = Pack,
+            })
+
+        elseif kind == "delete" then
+            Pack:set_status("deleted")
+            vim.notify(string.format("✓ Deleted %s", n_spec.name), vim.log.levels.INFO)
+            Event.emit("pack:deleted", {
+                name = name,
+                status = "deleted",
+                pack = Pack,
+            })
+        end
     end,
 })
+
 
 vim.api.nvim_create_autocmd("VimLeavePre", {
     desc = "Cleanup all loaders and dashboard before exit",

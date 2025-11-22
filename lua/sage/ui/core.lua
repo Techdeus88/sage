@@ -598,6 +598,38 @@ function IconElement:render()
     return self.value or ""
 end
 
+local TaskProgressElement = {}
+TaskProgressElement.__index = TaskProgressElement
+
+function TaskProgressElement.new(key, progress_data)
+    local self = setmetatable({}, TaskProgressElement)
+    self.key = key
+    self.value = progress_data or {
+        total = 0,
+        completed = 0,
+        required_completed = 0,
+        required_total = 0,
+        percentage = 0
+    }
+    return self
+end
+
+function TaskProgressElement:update(progress_data)
+    if progress_data then
+        self.value = progress_data
+    end
+end
+
+function TaskProgressElement:render()
+    local p = self.value
+    if p.total == 0 then return "" end
+    if p.completed == p.total then return "[✓]" end
+    if p.required_completed < p.required_total then
+        return string.format("[%d/%d*]", p.required_completed, p.required_total)
+    end
+    return string.format("[%d/%d]", p.completed, p.total)
+end
+
 return {
     Element = Element,
     TextElement = TextElement,
@@ -609,4 +641,5 @@ return {
     ListElement = ListElement,
     IconElement = IconElement,
     LazyElement = LazyElement,
+    TaskProgressElement = TaskProgressElement,
 }
