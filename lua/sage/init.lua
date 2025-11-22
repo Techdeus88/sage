@@ -15,10 +15,10 @@ end
 local M = {}
 
 function M.setup(opts)
+    local _, global = pcall(require, "sage.base.global")
     local _, config = pcall(require, "sage.base.config")
     local _, dashboard = pcall(require, "sage.ui.dashboard")
     local _, manager = pcall(require, "sage.manager")
-
 
     local merged_opts = vim.tbl_deep_extend("force", config, opts)
 
