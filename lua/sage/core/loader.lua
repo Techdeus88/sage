@@ -211,6 +211,8 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
 end
 
 -- Strategy handlers
+
+-- Strategy vimenter: loads all lazy packs on VimEnter
 function BaseLoader:_strategy_vimenter(packs, opts)
     local has_run = false
 
@@ -240,6 +242,7 @@ function BaseLoader:_strategy_vimenter(packs, opts)
     end
 end
 
+-- Strategy delay: delays loading of all lazy packs
 function BaseLoader:_strategy_delay(packs, opts)
     local delay_ms = (opts and opts.delay_ms) or 500
 
@@ -260,9 +263,10 @@ function BaseLoader:_strategy_delay(packs, opts)
     )
 end
 
+-- Strategy idle: loads all lazy packs when user is idle for a set amount of seconds (default 4000)
 function BaseLoader:_strategy_idle(packs, opts)
-    local idle_time_ms = (opts and opts.idle_time_ms) or 1000
-    local check_interval = (opts and opts.check_interval) or 100
+    local idle_time_ms = (opts and opts.idle_time_ms) or 4000
+    local check_interval = (opts and opts.check_interval) or 500
     local last_input_time = vim.loop.hrtime()
     local has_started = false
 
@@ -472,18 +476,15 @@ function LazyLoader:setup_dependency_loading(pack, manager, dep_chain)
     vim.schedule(check_and_load)
 end
 
--- Setup before blocking
+-- Setup before loading
 function LazyLoader:setup_before_blocking(pack, manager, before_list)
     local name = pack.specs.normalize.name
     local has_loaded = false
 
-    self.event_listeners[name] = self.event_listeners[name] or {}
-
     for _, dep_name in ipairs(before_list) do
-        local listener_id = Event.on("pack:install:finish", function(data)
+        Event.on("pack:install:finish", function(data)
             if data.name == dep_name and not has_loaded and not pack.loaded then
                 has_loaded = true
-
                 vim.schedule(function()
                     local ok = self:load_pack_safe(pack, string.format("Loading before '%s'", dep_name))
                     if ok then
@@ -492,7 +493,26 @@ function LazyLoader:setup_before_blocking(pack, manager, before_list)
                 end)
             end
         end)
-        table.insert(self.event_listeners[name], listener_id)
+    end
+end
+
+-- Setup after loading
+function LazyLoader:setup_after_blocking(pack, manager, after_list)
+    local name = pack.specs.normalize.name
+    local has_loaded = false
+
+    for _, dep_name in ipairs(after_list) do
+        Event.on("pack:install:finish", function(data)
+            if data.name == dep_name and not has_loaded and not pack.loaded then
+                has_loaded = true
+                vim.schedule(function()
+                    local ok = self:load_pack_safe(pack, string.format("Loading after '%s'", dep_name))
+                    if ok then
+                        vim.notify(string.format("✓ '%s' loaded after '%s'", name, dep_name), vim.log.levels.INFO)
+                    end
+                end)
+            end
+        end)
     end
 end
 
@@ -641,6 +661,9 @@ function LazyLoader:start(packs, manager, opts)
         elseif on.before then
             local before_list = type(on.before) == "table" and on.before or { on.before }
             self:setup_before_blocking(pack, manager, before_list)
+        elseif on.after then
+            local after_list = type(on.after) == "table" and on.after or { on.after }
+            self:setup_after_blocking(pack, manager, after_list)
         else
             self:setup_standard_triggers(pack, on)
         end
