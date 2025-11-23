@@ -1,5 +1,4 @@
--- SAGE PACK MANAGER - FIXED & OPTIMIZED
--- ============================================================================
+-- SAGE PACK MANAGER - FIXED & OPTIMIZED WITH SYNCHRONOUS WAIT
 -- ============================================================================
 local utils = require("sage.base.utils")
 
@@ -22,6 +21,10 @@ function Manager.new()
     self.packs = {}
     self.install_times = {}
     self.delay_time = 100
+    -- Track installation state
+    self.installation_complete = false
+    self.installation_success = false
+    self.installation_result = nil
     return self
 end
 
@@ -32,7 +35,6 @@ function Manager:create_pack(spec)
     local pack = require("sage.core.pack")
     local Pack = pack.new(spec)
     local TaskSystem = require("sage.core.tasks.system")
-    -- Wire the task system
     TaskSystem.wire_pack(Pack)
     return Pack
 end
@@ -49,7 +51,6 @@ function Manager:update_pack(name, updated_pack)
     end
     return self.packs[name]
 end
-
 -- ============================================================================
 -- Batch Installation with Callback-Based Tracking (FIXED)
 -- ============================================================================
@@ -254,94 +255,6 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 end
 
 -- ============================================================================
--- Individual Stage Installation (Legacy - kept for compatibility)
--- ============================================================================
-function Manager:install_activate(packs)
-    local Event = require("sage.core.bus")
-
-    packs = packs or {}
-    if #packs == 0 then
-        return true
-    end
-
-    local n_specs = vim.tbl_map(function(p)
-        return p.specs.normalize
-    end, packs)
-
-    local delay_start = 50
-    local install_start = vim.loop.hrtime()
-
-    -- Emit start events
-    for i, pack in ipairs(packs) do
-        local name = pack.specs.normalize.name
-
-        vim.schedule(function()
-            vim.defer_fn(function()
-                Event.emit("pack:install:start", {
-                    name = name,
-                    status = pack:get_status(),
-                    message = "Installation starting",
-                    pack = pack,
-                })
-            end, delay_start * i)
-        end)
-    end
-
-    -- Install
-    local ok, err = pcall(vim.pack.add, n_specs, {
-        confirm = false,
-        load = function(data)
-            local pack_name = data.spec.name
-            local pack = self.packs[pack_name]
-
-            if pack then
-                -- FIXED: Wrap vim.cmd in vim.schedule to avoid unsafe API call in callback
-                vim.schedule(function()
-                    pcall(vim.cmd, "packadd " .. pack_name)
-                end)
-
-                pack.times = pack.times or {}
-                pack.times.install_duration = string.format("%.2f", (vim.loop.hrtime() - install_start) / 1e6)
-                pack:set_status("installed")
-                pack.installed = true
-
-                vim.schedule(function()
-                    Event.emit("pack:install:finish", {
-                        name = pack_name,
-                        status = "installed",
-                        message = "Installation complete",
-                        install_duration = pack.times.install_duration,
-                        pack = pack,
-                    })
-                end)
-            end
-        end,
-    })
-
-    if not ok then
-        vim.schedule(function()
-            utils.safe_notify(string.format("Installation failed: %s", tostring(err)), vim.log.levels.ERROR)
-        end)
-
-        for _, pack in ipairs(packs) do
-            pack.installed = false
-            pack:set_status("failed")
-        end
-
-        Event.emit("pack:install:failed", {
-            list = packs,
-            count = #packs,
-            message = "Installation failed",
-            error = tostring(err),
-        })
-
-        return false
-    end
-
-    return true
-end
-
--- ============================================================================
 -- Dashboard Detection
 -- ============================================================================
 local function should_show_dashboard(all_specs)
@@ -362,13 +275,11 @@ function Manager:load_specs(specs_dir)
     local pre_path = vim.fn.stdpath("config") .. "/lua"
     local specs_path = pre_path .. (specs_dir or "/packs")
 
-    -- Check if directory exists
     if vim.fn.isdirectory(specs_path) == 0 then
         utils.safe_notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
         return all_specs
     end
 
-    -- Get spec files
     local spec_files = utils.get_lua_files_recursive_opts(specs_path, {
         exclude_dirs = { "configs", "tests", "spec", "node_modules", ".git" },
     })
@@ -378,7 +289,6 @@ function Manager:load_specs(specs_dir)
         return all_specs
     end
 
-    -- Load and parse specs
     for _, file in ipairs(spec_files) do
         local success, file_specs = pcall(dofile, file)
         if success and file_specs and type(file_specs) == "table" then
@@ -407,7 +317,6 @@ function Manager:load_specs(specs_dir)
 
     return all_specs
 end
-
 -- ============================================================================
 -- Main Entry Point: run_packs method
 -- ============================================================================

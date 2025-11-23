@@ -1,8 +1,6 @@
 local Event = require("sage.core.bus")
-
 local elem = require("sage.ui.core")
 local icons = require("sage.ui.icons")
-
 local utils = require("sage.base.utils")
 
 local width_percentage = 0.9
@@ -92,11 +90,12 @@ local function display_pack_comparison(pack_name)
         table.insert(padded_lines, " " .. line .. " ")
     end
 
-    vim.api.nvim_buf_set_option(buf, "modifiable", true)
+    vim.api.nvim_api_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
-    vim.api.nvim_buf_set_option(buf, "modifiable", false)
-    vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
-    vim.api.nvim_buf_set_option(buf, "filetype", "lua")
+
+    vim.api.nvim_api_set_option_value("modifiable", false, { buf = buf })
+    vim.api.nvim_api_set_option_value("filetype", "lua", { buf = buf })
+    vim.api.nvim_api_set_option_value("buftype", "nofile", { buf = buf })
 
     pcall(vim.api.nvim_set_current_win, win)
 
@@ -171,10 +170,10 @@ function Dashboard:create_three_pane_layout()
     self.footer_buf = vim.api.nvim_create_buf(false, true)
 
     for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
-        vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
-        vim.api.nvim_buf_set_option(buf, "filetype", "sage")
-        vim.api.nvim_buf_set_option(buf, "modifiable", true)
-        vim.api.nvim_buf_set_option(buf, "indentexpr", "")
+        vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
+        vim.api.nvim_set_option_value("filetype", "sage", { buf = buf })
+        vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+        vim.api.nvim_set_option_value("indentexpr", "", { buf = buf })
         pcall(vim.api.nvim_buf_set_var, buf, "miniindentscope_disable", true)
         pcall(vim.api.nvim_buf_set_var, buf, "indent_blankline_enabled", false)
         pcall(vim.api.nvim_buf_set_var, buf, "snacks_indent_disable", true)
@@ -214,8 +213,8 @@ function Dashboard:create_three_pane_layout()
     vim.api.nvim_set_option_value("winhighlight", "Normal:SageUIWindow", { win = self.content_win })
     vim.api.nvim_set_option_value("winhighlight", "Normal:SageUIWindow", { win = self.footer_win })
 
-    vim.api.nvim_win_set_option(self.content_win, "cursorline", true)
-    vim.api.nvim_win_set_option(self.content_win, "scrolloff", 3)
+    vim.api.nvim_set_option_value("cursorline", true, { win = self.content_win })
+    vim.api.nvim_set_option_value("scrolloff", 3, { win = self.content_win })
 
     pcall(vim.api.nvim_set_current_win, self.content_win)
 
@@ -288,7 +287,7 @@ function Dashboard:render_header()
 
     local header_lines = { "", rendered_tabs, "", "" }
 
-    vim.api.nvim_buf_set_option(self.header_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.header_buf })
     vim.api.nvim_buf_set_lines(self.header_buf, 0, -1, false, header_lines)
 
     vim.api.nvim_buf_clear_namespace(self.header_buf, Dashboard.ns_ui, 0, -1)
@@ -307,7 +306,7 @@ function Dashboard:render_header()
         col = col + #text
     end
 
-    vim.api.nvim_buf_set_option(self.header_buf, "modifiable", false)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.header_buf })
 end
 -- ============================================================================
 -- Tab Filtering (FIXED: Added "now" and "later" filters)
@@ -317,7 +316,7 @@ function Dashboard:refresh_for_tab()
         return
     end
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
     vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
 
     local filter = self.tabs[self.active_tab_index].id
@@ -370,11 +369,12 @@ function Dashboard:refresh_for_tab()
                 self:expand_details(row)
                 line = line + row.details_count
             end
+        else
+            return "No packs found!"
         end
     end
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
-
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
     self:render_header()
     self:render_footer()
 end
@@ -487,9 +487,9 @@ function Dashboard:render_footer()
         "",
     }
 
-    vim.api.nvim_buf_set_option(self.footer_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.footer_buf })
     vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, footer_lines)
-    vim.api.nvim_buf_set_option(self.footer_buf, "modifiable", false)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
 
     vim.api.nvim_buf_clear_namespace(self.footer_buf, Dashboard.ns_footer, 0, -1)
     vim.api.nvim_buf_add_highlight(self.footer_buf, Dashboard.ns_footer, "SageFooterProgress", 1, 0, -1)
@@ -649,10 +649,9 @@ function Dashboard:update_line(row)
 
     local padded = add_padding_to_line(line_text, 1)
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
     local current_line = vim.api.nvim_buf_get_lines(self.content_buf, l, l + 1, false)[1] or ""
     vim.api.nvim_buf_set_text(self.content_buf, l, 0, l, #current_line, { padded })
-
     vim.api.nvim_buf_clear_namespace(self.content_buf, ns, l, l + 1)
 
     local function highlight_button(button_text, hl_group, priority)
@@ -691,8 +690,7 @@ function Dashboard:update_line(row)
         highlight_button(dep, "SageDependency", 100)
     end
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
-
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
     self:update_footer_debounced()
 end
 

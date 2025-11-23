@@ -6,6 +6,19 @@ function U.safe_notify(msg, level)
     end)
 end
 
+function U.count_pack_directories(pack_path)
+    local items = vim.split(vim.fn.glob(pack_path .. "/*"), "\n", { trimempty = true })
+    local count = 0
+
+    for _, item in ipairs(items) do
+        if vim.fn.isdirectory(item) ~= 0 then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
 function U.format_table(tbl, indent)
     indent = indent or 0
     local prefix = string.rep("  ", indent)

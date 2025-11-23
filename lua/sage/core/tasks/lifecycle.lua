@@ -1,6 +1,5 @@
-
 -- ============================================================================
--- Lifecycle - Manages task execution for a pack
+-- lifecycle.lua (Fixed)
 -- ============================================================================
 local Event = require("sage.core.bus")
 
@@ -11,13 +10,16 @@ function Lifecycle.new(pack)
     local self = setmetatable({}, Lifecycle)
     self.pack = pack
     self.tasks = {}
-    self.task_order = {}  -- execution order
+    self.task_order = {} -- execution order
     self.current_task_index = 0
     self.completed = false
     return self
 end
 
 function Lifecycle:add_task(task)
+    if not task or not task.id then
+        return
+    end
     self.tasks[task.id] = task
     table.insert(self.task_order, task.id)
 end
@@ -31,7 +33,7 @@ function Lifecycle:get_next_runnable_task()
         local task_id = self.task_order[i]
         local task = self.tasks[task_id]
 
-        if task.status == "pending" then
+        if task and task.status == "pending" then
             local can_run, reason = task:can_run(self.pack)
             if can_run then
                 self.current_task_index = i
@@ -57,7 +59,7 @@ function Lifecycle:run_next()
         local all_required_done = true
         for _, task_id in ipairs(self.task_order) do
             local t = self.tasks[task_id]
-            if t.required and t.status ~= "success" and t.status ~= "skipped" then
+            if t and t.required and t.status ~= "success" and t.status ~= "skipped" then
                 all_required_done = false
                 break
             end
@@ -65,42 +67,51 @@ function Lifecycle:run_next()
 
         if all_required_done and not self.completed then
             self.completed = true
-            vim.schedule(function()
-                Event.emit("pack:lifecycle:complete", {
-                    name = self.pack.specs.normalize.name,
-                    pack = self.pack,
-                })
-            end)
+            -- FIXED: Added nil check for pack
+            if self.pack and self.pack.specs and self.pack.specs.normalize then
+                vim.schedule(function()
+                    Event.emit("pack:lifecycle:complete", {
+                        name = self.pack.specs.normalize.name,
+                        pack = self.pack,
+                    })
+                end)
+            end
         end
 
         return false, reason
     end
 
-    -- Emit task start event (scheduled)
-    vim.schedule(function()
-        Event.emit("pack:task:start", {
-            name    = self.pack.specs.normalize.name,
-            task    = task.name,
-            task_id = task.id,
-            pack    = self.pack,
-        })
-    end)
+    -- FIXED: Added nil check for pack before emitting
+    if self.pack and self.pack.specs and self.pack.specs.normalize then
+        -- Emit task start event (scheduled)
+        vim.schedule(function()
+            Event.emit("pack:task:start", {
+                name = self.pack.specs.normalize.name,
+                task = task.name,
+                task_id = task.id,
+                pack = self.pack,
+            })
+        end)
+    end
 
     -- Run the task (synchronous for now)
     local ok, result = task:run(self.pack)
 
-    -- Emit task complete event (scheduled)
-    vim.schedule(function()
-        Event.emit("pack:task:complete", {
-            name     = self.pack.specs.normalize.name,
-            task     = task.name,
-            task_id  = task.id,
-            status   = task.status,
-            duration = task.duration,
-            error    = task.error,
-            pack     = self.pack,
-        })
-    end)
+    -- FIXED: Added nil check for pack before emitting
+    if self.pack and self.pack.specs and self.pack.specs.normalize then
+        -- Emit task complete event (scheduled)
+        vim.schedule(function()
+            Event.emit("pack:task:complete", {
+                name = self.pack.specs.normalize.name,
+                task = task.name,
+                task_id = task.id,
+                status = task.status,
+                duration = task.duration,
+                error = task.error,
+                pack = self.pack,
+            })
+        end)
+    end
 
     -- Continue with next task if this one succeeded
     if ok then
@@ -118,26 +129,28 @@ function Lifecycle:get_progress()
 
     for _, task_id in ipairs(self.task_order) do
         local task = self.tasks[task_id]
-        total = total + 1
+        if task then
+            total = total + 1
 
-        if task.status == "success" or task.status == "skipped" then
-            completed = completed + 1
-        end
+            if task.status == "success" or task.status == "skipped" then
+                completed = completed + 1
+            end
 
-        if task.required then
-            required_total = required_total + 1
-            if task.status == "success" then
-                required_completed = required_completed + 1
+            if task.required then
+                required_total = required_total + 1
+                if task.status == "success" then
+                    required_completed = required_completed + 1
+                end
             end
         end
     end
 
     return {
-        total              = total,
-        completed          = completed,
-        required_total     = required_total,
-         required_completed = required_completed,
-        percentage         = total > 0 and (completed / total * 100) or 0,
+        total = total,
+        completed = completed,
+        required_total = required_total,
+        required_completed = required_completed,
+        percentage = total > 0 and (completed / total * 100) or 0,
     }
 end
 
