@@ -1,4 +1,4 @@
--- ==============f=============================================================
+-- ============================================================================
 -- UNIVERSAL LOADER WITH SUB CLASSES
 -- ============================================================================
 local Event = require("sage.core.bus")
@@ -61,7 +61,6 @@ local function resolve_dependency_chain(target_pack, manager, visited, path)
             local dep_pack = manager.packs[dep_name]
 
             if dep_pack then
-                -- ========================================
                 local sub_chain, has_cycle = resolve_dependency_chain(dep_pack, manager, visited, vim.deepcopy(path))
 
                 if has_cycle then
@@ -92,6 +91,8 @@ function BaseLoader.new()
     local self = setmetatable({}, BaseLoader)
     self.loading_queue = {}
     self.timers = {} -- Track all timers for cleanup
+    self.autocmds = {} -- Track autocmds for cleanup
+    self.user_commands = {} -- Track user commands for cleanup
     return self
 end
 
@@ -116,12 +117,17 @@ function BaseLoader:update_pack(pack_name, manager, to_force)
             vim.notify(msg, vim.log.levels.ERROR)
             return false, err
         end
-        local spec = pack.specs.normalize
+        return true, "success"
     end
+    return false, "pack not found"
 end
 
 -- Safe loading with proper state management
 function BaseLoader:load_pack_safe(pack, reason, delay_ms)
+    if not pack or not pack.specs or not pack.specs.normalize then
+        return false, "invalid pack"
+    end
+
     local name = pack.specs.normalize.name
     delay_ms = delay_ms or 0
 
@@ -143,7 +149,7 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
                 message = reason or "Loading pack",
                 pack = pack,
             })
-        end, delay_ms + 100)
+        end, delay_ms)
     end)
 
     -- Execute load
@@ -167,14 +173,7 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
                     config_duration = pack.times.config_duration,
                     pack = pack,
                 })
-            end, delay_ms + 200)
-        end)
-
-        -- **ADD THIS NEW BLOCK**:
-        -- Advance task lifecycle after successful config
-        vim.schedule(function()
-            vim.defer_fn(function()
-            end, delay_ms + 100)
+            end, delay_ms)
         end)
 
         return true, "success"
@@ -207,16 +206,22 @@ function BaseLoader:close()
     self.timers = {}
 
     -- Delete autocmds
-    -- for _, id in ipairs(self.autocmds) do
-    --     pcall(vim.api.nvim_del_autocmd, id)
-    -- end
-    -- self.autocmds = {}
+    for _, id in ipairs(self.autocmds) do
+        pcall(vim.api.nvim_del_autocmd, id)
+    end
+    self.autocmds = {}
+
+    -- Delete user commands
+    for _, cmd_name in ipairs(self.user_commands) do
+        pcall(vim.api.nvim_del_user_command, cmd_name)
+    end
+    self.user_commands = {}
 
     self.loading_queue = {}
 end
 
 -- ============================================================================
--- EagerLoader (now stage) - FIXED
+-- EagerLoader (now stage)
 -- ============================================================================
 local EagerLoader = setmetatable({}, { __index = BaseLoader })
 EagerLoader.__index = EagerLoader
@@ -236,7 +241,7 @@ function EagerLoader:start(packs, manager, opts)
 end
 
 -- ============================================================================
--- LaterLoader (later stage with strategies) - FIXED
+-- LaterLoader (later stage with strategies)
 -- ============================================================================
 local LaterLoader = setmetatable({}, { __index = BaseLoader })
 LaterLoader.__index = LaterLoader
@@ -288,11 +293,12 @@ function LaterLoader:_strategy_vimenter(packs, opts)
     end
 
     if vim.fn.has("vim_starting") == 1 then
-        vim.api.nvim_create_autocmd("VimEnter", {
+        local autocmd_id = vim.api.nvim_create_autocmd("VimEnter", {
             once = true,
             callback = load_all,
             desc = "Load later-stage plugins on VimEnter",
         })
+        table.insert(self.autocmds, autocmd_id)
     else
         load_all()
     end
@@ -341,12 +347,13 @@ function LaterLoader:_strategy_idle(packs, opts)
     end
 
     -- Track user input
-    vim.api.nvim_create_autocmd({ "CursorMoved", "TextChanged", "TextChangedI", "CmdlineEnter" }, {
+    local autocmd_id = vim.api.nvim_create_autocmd({ "CursorMoved", "TextChanged", "TextChangedI", "CmdlineEnter" }, {
         callback = function()
             last_input_time = vim.loop.hrtime()
         end,
         desc = "Track idle loader input",
     })
+    table.insert(self.autocmds, autocmd_id)
 
     -- Start idle timer
     local timer = vim.loop.new_timer()
@@ -364,7 +371,7 @@ function LaterLoader:_strategy_idle(packs, opts)
 end
 
 -- ============================================================================
--- LazyLoader (lazy stage with triggers and dependencies) - FIXED
+-- LazyLoader (lazy stage with triggers and dependencies)
 -- ============================================================================
 local LazyLoader = setmetatable({}, { __index = BaseLoader })
 LazyLoader.__index = LazyLoader
@@ -414,7 +421,12 @@ function LazyLoader:close()
     end
     self.dependency_timers = {}
 
-    -- Clear event listeners
+    -- Remove event listeners properly
+    for pack_name, listener_ids in pairs(self.event_listeners) do
+        for _, listener_id in ipairs(listener_ids) do
+            pcall(Event.off, listener_id)
+        end
+    end
     self.event_listeners = {}
 
     -- Call parent close
@@ -516,7 +528,7 @@ function LazyLoader:setup_before_blocking(pack, manager, before_list)
     local has_loaded = false
 
     for _, dep_name in ipairs(before_list) do
-        Event.on("pack:install:finish", function(data)
+        local listener_id = Event.on("pack:install:finish", function(data)
             if data.name == dep_name and not has_loaded and not pack.loaded then
                 has_loaded = true
                 vim.schedule(function()
@@ -527,6 +539,7 @@ function LazyLoader:setup_before_blocking(pack, manager, before_list)
                 end)
             end
         end)
+        table.insert(self.event_listeners[name], listener_id)
     end
 end
 
@@ -536,7 +549,7 @@ function LazyLoader:setup_after_blocking(pack, manager, after_list)
     local has_loaded = false
 
     for _, dep_name in ipairs(after_list) do
-        Event.on("pack:install:finish", function(data)
+        local listener_id = Event.on("pack:install:finish", function(data)
             if data.name == dep_name and not has_loaded and not pack.loaded then
                 has_loaded = true
                 vim.schedule(function()
@@ -547,16 +560,21 @@ function LazyLoader:setup_after_blocking(pack, manager, after_list)
                 end)
             end
         end)
+        table.insert(self.event_listeners[name], listener_id)
     end
 end
 
 -- Setup standard triggers
 function LazyLoader:setup_standard_triggers(pack, on_config)
+    if not pack or not pack.specs or not pack.specs.normalize then
+        return false
+    end
+
     local name = pack.specs.normalize.name
     local has_triggered = false
 
     local function trigger_load(trigger_type, detail)
-        if has_triggered or pack.loaded then
+        if has_triggered or (pack and pack.loaded) then
             return
         end
         has_triggered = true
@@ -571,13 +589,14 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
     if events then
         local evts = type(events) == "table" and events or { events }
         for _, evt in ipairs(evts) do
-            vim.api.nvim_create_autocmd(evt, {
+            local autocmd_id = vim.api.nvim_create_autocmd(evt, {
                 callback = function()
                     trigger_load("event", evt)
                     return true
                 end,
                 desc = string.format("Load %s on %s", name, evt),
             })
+            table.insert(self.autocmds, autocmd_id)
         end
 
         pack:set_status("lazy")
@@ -595,7 +614,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
     if fts then
         local filetypes = type(fts) == "table" and fts or { fts }
         for _, ft in ipairs(filetypes) do
-            vim.api.nvim_create_autocmd("FileType", {
+            local autocmd_id = vim.api.nvim_create_autocmd("FileType", {
                 pattern = ft,
                 callback = function(evt)
                     if vim.bo[evt.buf].filetype == ft then
@@ -605,6 +624,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
                 end,
                 desc = string.format("Load %s on filetype %s", name, ft),
             })
+            table.insert(self.autocmds, autocmd_id)
         end
 
         pack:set_status("lazy")
@@ -624,6 +644,8 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         for _, cmd in ipairs(commands) do
             vim.api.nvim_create_user_command(cmd, function(args)
                 trigger_load("command", cmd)
+                -- Delete the placeholder command
+                pcall(vim.api.nvim_del_user_command, cmd)
                 vim.schedule(function()
                     vim.cmd(cmd .. " " .. args.args)
                 end)
@@ -631,6 +653,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
                 nargs = "*",
                 desc = string.format("Load %s and run %s", name, cmd),
             })
+            table.insert(self.user_commands, cmd)
         end
 
         pack:set_status("lazy")
@@ -647,12 +670,16 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
     local keys = on_config.keys
     if keys then
         local ks = type(keys) == "table" and keys or { keys }
+        local created_keymaps = {}
+
         for _, key in ipairs(ks) do
             local mode = key.mode or "n"
             local lhs = type(key) == "string" and key or key[1]
 
             vim.keymap.set(mode, lhs, function()
                 trigger_load("keymap", lhs)
+                -- Remove the lazy-load keymap
+                pcall(vim.keymap.del, mode, lhs)
                 vim.schedule(function()
                     local feedkey = vim.api.nvim_replace_termcodes(lhs, true, false, true)
                     vim.api.nvim_feedkeys(feedkey, "m", false)
@@ -660,6 +687,8 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
             end, {
                 desc = key.desc or string.format("Load %s on %s", name, lhs),
             })
+
+            table.insert(created_keymaps, { mode = mode, lhs = lhs })
         end
 
         pack:set_status("lazy")
@@ -676,7 +705,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
 end
 
 -- ============================================================================
--- DisabledLoader (disabled stage) - FIXED
+-- DisabledLoader (disabled stage)
 -- ============================================================================
 local DisabledLoader = setmetatable({}, { __index = BaseLoader })
 DisabledLoader.__index = DisabledLoader
@@ -760,6 +789,5 @@ function Loader:close_all()
         end
     end
 end
-
 
 return Loader

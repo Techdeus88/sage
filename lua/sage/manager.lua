@@ -8,7 +8,7 @@ Manager.__index = Manager
 Manager._singleton = nil
 
 -- ============================================================================
--- Singleton Pattern (FIXED)
+-- Singleton Pattern
 -- ============================================================================
 function Manager:get_singleton()
     if Manager._singleton == nil then
@@ -83,6 +83,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     local install_finish_count = 0
     local failed_packs = {}
     local delay_start = 50
+    local completion_timer = nil
 
     -- Emit install:start events
     for i, pack in ipairs(all_packs) do
@@ -101,6 +102,35 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
     local global_start = vim.loop.hrtime()
 
+    -- Setup timeout timer in case some packs never call load()
+    completion_timer = vim.loop.new_timer()
+    completion_timer:start(30000, 0, vim.schedule_wrap(function()
+        if install_finish_count < total_to_install then
+            utils.safe_notify(
+                string.format("Installation timeout: %d/%d packs completed", install_finish_count, total_to_install),
+                vim.log.levels.WARN
+            )
+
+            -- Mark remaining packs as failed
+            for _, pack in ipairs(all_packs) do
+                if not pack.installed then
+                    table.insert(failed_packs, pack.specs.normalize.name)
+                    pack:set_status("failed")
+                end
+            end
+
+            if on_complete then
+                on_complete(false, {
+                    installed_count = install_finish_count,
+                    failed_count = total_to_install - install_finish_count,
+                    failed_packs = failed_packs,
+                    error = "Installation timeout",
+                })
+            end
+        end
+        completion_timer:close()
+    end))
+
     -- Single batch installation with callback tracking
     local ok, err = pcall(vim.pack.add, n_specs, {
         confirm = false,
@@ -115,6 +145,9 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
                 -- Check if all done
                 if install_finish_count == total_to_install then
+                    if completion_timer and not completion_timer:is_closing() then
+                        completion_timer:close()
+                    end
                     if on_complete then
                         vim.schedule(function()
                             on_complete(true, {
@@ -130,15 +163,17 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
             pack.installed = true
 
-            -- Load the pack
-            vim.cmd("packadd " .. pack_name)
+            -- FIXED: Wrap vim.cmd in vim.schedule to avoid unsafe API call in callback
+            vim.schedule(function()
+                pcall(vim.cmd, "packadd " .. pack_name)
+            end)
 
             -- Record timing
             local individual_time = vim.loop.hrtime() - global_start
             pack.times = pack.times or {}
             pack.times.install_duration = string.format("%.2f", individual_time / 1e6)
 
-            -- Emit install:finish event WITHOUT vim.schedule (keep in load callback)
+            -- Emit install:finish event
             vim.schedule(function()
                 Event.emit("pack:install:finish", {
                     name = pack_name,
@@ -164,6 +199,9 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
             -- Check if all packs have been installed
             if install_finish_count == total_to_install then
+                if completion_timer and not completion_timer:is_closing() then
+                    completion_timer:close()
+                end
                 if on_complete then
                     vim.schedule(function()
                         on_complete(true, {
@@ -178,6 +216,10 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     })
 
     if not ok then
+        if completion_timer and not completion_timer:is_closing() then
+            completion_timer:close()
+        end
+
         vim.schedule(function()
             utils.safe_notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
         end)
@@ -208,39 +250,6 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         return false
     end
 
-    -- Schedule build commands to run after all packs are loaded
-    -- vim.schedule(function()
-    --     vim.defer_fn(function()
-    --         for _, pack in ipairs(all_packs) do
-    --             local original_spec = pack.specs.normalize
-    --             if original_spec.data.build then
-    --                 local name = original_spec.name
-    --                 print(string.format("[BUILD] Running build for %s", name))
-    --
-    --                 local ok_build, err_build = pcall(function()
-    --                     if type(original_spec.build) == "string" then
-    --                         -- It's a command
-    --                         vim.cmd(original_spec.build)
-    --                     elseif type(original_spec.build) == "function" then
-    --                         -- It's a function
-    --                         original_spec.build()
-    --                     end
-    --                 end)
-    --
-    --                 if not ok_build then
-    --                     utils.safe_notify(
-    --                         string.format("[%s] Build failed: %s", name, tostring(err_build)),
-    --                         vim.log.levels.WARN
-    --                     )
-    --                     print(string.format("[BUILD] ERROR for %s: %s", name, tostring(err_build)))
-    --                 else
-    --                     print(string.format("[BUILD] Success for %s", name))
-    --                 end
-    --             end
-    --         end
-    --     end, 500)  -- Defer build by 500ms to ensure everything is loaded
-    -- end)
-
     return true
 end
 
@@ -265,7 +274,6 @@ function Manager:install_activate(packs)
     -- Emit start events
     for i, pack in ipairs(packs) do
         local name = pack.specs.normalize.name
-        -- pack:set_status("installing")
 
         vim.schedule(function()
             vim.defer_fn(function()
@@ -287,7 +295,10 @@ function Manager:install_activate(packs)
             local pack = self.packs[pack_name]
 
             if pack then
-                vim.cmd("packadd " .. pack_name)
+                -- FIXED: Wrap vim.cmd in vim.schedule to avoid unsafe API call in callback
+                vim.schedule(function()
+                    pcall(vim.cmd, "packadd " .. pack_name)
+                end)
 
                 pack.times = pack.times or {}
                 pack.times.install_duration = string.format("%.2f", (vim.loop.hrtime() - install_start) / 1e6)
@@ -477,11 +488,26 @@ function Manager:run_packs(opts)
         -- The callback will fire when ALL packs have called their load() function
         self:install_activate_batch(by_stage, function(success, result)
             if not success then
-                utils.safe_notify(string.format("Installation failed: %s", result.error), vim.log.levels.ERROR)
+                utils.safe_notify(
+                    string.format("Installation failed: %s", result.error or "unknown error"),
+                    vim.log.levels.ERROR
+                )
                 return
             end
 
             if success then
+                -- Show summary if there were failures
+                if result.failed_count and result.failed_count > 0 then
+                    utils.safe_notify(
+                        string.format(
+                            "Installation completed with %d failures: %s",
+                            result.failed_count,
+                            table.concat(result.failed_packs or {}, ", ")
+                        ),
+                        vim.log.levels.WARN
+                    )
+                end
+
                 -- NOW process stages (only after all installs are done)
                 process_stages(by_stage)
             end
