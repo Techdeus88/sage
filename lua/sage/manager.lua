@@ -30,8 +30,8 @@ end
 -- ============================================================================
 function Manager:create_pack(spec)
     local pack = require("sage.core.pack")
-    local TaskSystem = require("sage.core.task")
     local Pack = pack.new(spec)
+    local TaskSystem = require("sage.core.tasks.system")
     -- Wire the task system
     TaskSystem.wire_pack(Pack)
     return Pack
@@ -48,41 +48,6 @@ function Manager:update_pack(name, updated_pack)
         updated_pack:set_status("updated")
     end
     return self.packs[name]
-end
-
--- ============================================================================
--- Wire Pack Tasks (Currently unused but kept for future)
--- ============================================================================
-function Manager:wire_pack_tasks(pack)
-    local Task = require("sage.core.task")
-    local Event = require("sage.core.bus")
-    local lc = pack.lifecycle
-
-    lc:add_task(Task.new("install", function()
-        Event.emit("pack:install:start", {
-            name = pack.specs.normalize.name,
-            status = "installing",
-        })
-        self:install_pack(pack)
-        Event.emit("pack:install:finish", {
-            name = pack.specs.normalize.name,
-            status = "installed",
-            install_duration = pack.times.install_duration,
-        })
-    end))
-
-    lc:add_task(Task.new("config", function()
-        Event.emit("pack:config:start", {
-            name = pack.specs.normalize.name,
-            status = "configuring",
-        })
-        self:configure_pack(pack)
-        Event.emit("pack:config:finish", {
-            name = pack.specs.normalize.name,
-            status = "configured",
-            config_duration = pack.times.config_duration,
-        })
-    end))
 end
 
 -- ============================================================================
@@ -123,8 +88,8 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     for i, pack in ipairs(all_packs) do
         local name = pack.specs.normalize.name
         pack:set_status("installing")
+
         vim.schedule(function()
-            pack:run_tasks()
             Event.emit("pack:install:start", {
                 name = name,
                 status = "installing",
@@ -144,9 +109,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
             local pack = self.packs[pack_name]
 
             if not pack then
-                vim.schedule(function()
-                    vim.notify(string.format("Pack '%s' not found in manager", pack_name), vim.log.levels.WARN)
-                end)
+                utils.safe_notify(string.format("Pack '%s' not found in manager", pack_name), vim.log.levels.WARN)
                 table.insert(failed_packs, pack_name)
                 install_finish_count = install_finish_count + 1
 
@@ -176,15 +139,18 @@ function Manager:install_activate_batch(pack_groups, on_complete)
             pack.times.install_duration = string.format("%.2f", individual_time / 1e6)
 
             -- Emit install:finish event WITHOUT vim.schedule (keep in load callback)
-            Event.emit("pack:install:finish", {
-                name = pack_name,
-                status = "installed",
-                message = "Installation complete",
-                install_duration = pack.times.install_duration,
-                pack = pack,
-            })
+            vim.schedule(function()
+                Event.emit("pack:install:finish", {
+                    name = pack_name,
+                    status = "installed",
+                    message = "Installation complete",
+                    install_duration = pack.times.install_duration,
+                    pack = pack,
+                })
+            end)
 
-            pack:set_active(true)
+            pack:set_active(data)
+            pack:set_path(data.path)
 
             -- NOTE: Do NOT set any status here
             -- The Loaders will set the appropriate status for each stage:
@@ -212,9 +178,9 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     })
 
     if not ok then
-     vim.schedule(function()
-        vim.notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
-    end)
+        vim.schedule(function()
+            utils.safe_notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
+        end)
 
         -- Mark all as failed
         for _, pack in ipairs(all_packs) do
@@ -243,37 +209,37 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     end
 
     -- Schedule build commands to run after all packs are loaded
-    vim.schedule(function()
-        vim.defer_fn(function()
-            for _, pack in ipairs(all_packs) do
-                local original_spec = pack.specs.normalize
-                if original_spec.data.build then
-                    local name = original_spec.name
-                    print(string.format("[BUILD] Running build for %s", name))
-
-                    local ok_build, err_build = pcall(function()
-                        if type(original_spec.build) == "string" then
-                            -- It's a command
-                            vim.cmd(original_spec.build)
-                        elseif type(original_spec.build) == "function" then
-                            -- It's a function
-                            original_spec.build()
-                        end
-                    end)
-
-                    if not ok_build then
-                        vim.notify(
-                            string.format("[%s] Build failed: %s", name, tostring(err_build)),
-                            vim.log.levels.WARN
-                        )
-                        print(string.format("[BUILD] ERROR for %s: %s", name, tostring(err_build)))
-                    else
-                        print(string.format("[BUILD] Success for %s", name))
-                    end
-                end
-            end
-        end, 500)  -- Defer build by 500ms to ensure everything is loaded
-    end)
+    -- vim.schedule(function()
+    --     vim.defer_fn(function()
+    --         for _, pack in ipairs(all_packs) do
+    --             local original_spec = pack.specs.normalize
+    --             if original_spec.data.build then
+    --                 local name = original_spec.name
+    --                 print(string.format("[BUILD] Running build for %s", name))
+    --
+    --                 local ok_build, err_build = pcall(function()
+    --                     if type(original_spec.build) == "string" then
+    --                         -- It's a command
+    --                         vim.cmd(original_spec.build)
+    --                     elseif type(original_spec.build) == "function" then
+    --                         -- It's a function
+    --                         original_spec.build()
+    --                     end
+    --                 end)
+    --
+    --                 if not ok_build then
+    --                     utils.safe_notify(
+    --                         string.format("[%s] Build failed: %s", name, tostring(err_build)),
+    --                         vim.log.levels.WARN
+    --                     )
+    --                     print(string.format("[BUILD] ERROR for %s: %s", name, tostring(err_build)))
+    --                 else
+    --                     print(string.format("[BUILD] Success for %s", name))
+    --                 end
+    --             end
+    --         end
+    --     end, 500)  -- Defer build by 500ms to ensure everything is loaded
+    -- end)
 
     return true
 end
@@ -343,7 +309,7 @@ function Manager:install_activate(packs)
 
     if not ok then
         vim.schedule(function()
-            vim.notify(string.format("Installation failed: %s", tostring(err)), vim.log.levels.ERROR)
+            utils.safe_notify(string.format("Installation failed: %s", tostring(err)), vim.log.levels.ERROR)
         end)
 
         for _, pack in ipairs(packs) do
@@ -387,7 +353,7 @@ function Manager:load_specs(specs_dir)
 
     -- Check if directory exists
     if vim.fn.isdirectory(specs_path) == 0 then
-        vim.notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
+        utils.safe_notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
         return all_specs
     end
 
@@ -397,7 +363,7 @@ function Manager:load_specs(specs_dir)
     })
 
     if #spec_files == 0 then
-        vim.notify(string.format("No spec files found in: %s", specs_path), vim.log.levels.INFO)
+        utils.safe_notify(string.format("No spec files found in: %s", specs_path), vim.log.levels.INFO)
         return all_specs
     end
 
@@ -412,11 +378,11 @@ function Manager:load_specs(specs_dir)
                     seen_names[name] = true
                     table.insert(all_specs, spec)
                 else
-                    vim.notify(string.format("Duplicate spec: %s (skipping)", name), vim.log.levels.WARN)
+                    utils.safe_notify(string.format("Duplicate spec: %s (skipping)", name), vim.log.levels.WARN)
                 end
             end
         elseif not success then
-            vim.notify(
+            utils.safe_notify(
                 string.format("Failed to load spec file: %s - %s", file, tostring(file_specs)),
                 vim.log.levels.ERROR
             )
@@ -424,7 +390,7 @@ function Manager:load_specs(specs_dir)
     end
 
     if #all_specs == 0 then
-        vim.notify("No pack specs found", vim.log.levels.INFO)
+        utils.safe_notify("No pack specs found", vim.log.levels.INFO)
         return all_specs
     end
 
@@ -449,8 +415,6 @@ function Manager:run_packs(opts)
     local delay = 75
     local total_to_create = #all_specs
     local created_count = 0
-    local barrier_fired = false
-    local timeout_timer = nil
 
     -- Show dashboard if needed
     if opts.dashboard == "smart" and should_show_dashboard(all_specs) then
@@ -468,13 +432,13 @@ function Manager:run_packs(opts)
     local function process_stages(by_stage)
         local function process_stage(stage_name, packs)
             if #packs == 0 then
-                vim.notify(string.format("[STAGE] %s: 0 packs, skipping", stage_name), vim.log.levels.DEBUG, {})
+                utils.safe_notify(string.format("[STAGE] %s: 0 packs, skipping", stage_name), vim.log.levels.DEBUG, {})
                 return
             end
 
             local ok, err = pcall(Loader.run, stage_name, packs, self, opts)
             if not ok then
-                vim.notify(
+                utils.safe_notify(
                     string.format("Stage '%s' loading failed: %s", stage_name, tostring(err)),
                     vim.log.levels.ERROR
                 )
@@ -513,44 +477,21 @@ function Manager:run_packs(opts)
         -- The callback will fire when ALL packs have called their load() function
         self:install_activate_batch(by_stage, function(success, result)
             if not success then
-                vim.notify(string.format("Installation failed: %s", result.error), vim.log.levels.ERROR)
+                utils.safe_notify(string.format("Installation failed: %s", result.error), vim.log.levels.ERROR)
                 return
             end
 
-            -- NOW process stages (only after all installs are done)
-            process_stages(by_stage)
+            if success then
+                -- NOW process stages (only after all installs are done)
+                process_stages(by_stage)
+            end
         end)
     end
-
-    local function create_barrier()
-        if barrier_fired then
-            return
-        end
-        barrier_fired = true
-        if timeout_timer then
-            timeout_timer:stop()
-        end
-        vim.schedule(function()
-            Event.emit("pack:all_created", { num_packs = total_to_create })
-            process_packs()
-        end)
-    end
-
-    -- Set a timeout to prevent hanging
-    timeout_timer = vim.loop.new_timer()
-    timeout_timer:start(delay * total_to_create + 1000, 0, function()
-        if not barrier_fired then
-            vim.notify(
-                string.format("Pack creation timeout: %d/%d created", created_count, total_to_create),
-                vim.log.levels.WARN
-            )
-            create_barrier()
-        end
-    end)
 
     for i, spec in ipairs(all_specs) do
         local Pack = self:create_pack(spec)
         local name = Pack.specs.normalize.name
+
         Pack:set_status("created")
         self.packs[name] = Pack
         table.insert(all_packs, Pack)
@@ -572,12 +513,12 @@ function Manager:run_packs(opts)
                 })
                 created_count = created_count + 1
                 if created_count == total_to_create then
-                    create_barrier()
+                    Event.emit("pack:all_created", { num_packs = total_to_create })
+                    process_packs()
                 end
             end, delay * pack_index)
         end)
     end
-
     return all_packs
 end
 
@@ -586,7 +527,7 @@ end
 -- ============================================================================
 function Manager:cleanup()
     local Loader = require("sage.core.loader")
-    Loader.close_all()
+    Loader:close_all()
     self.packs = {}
 end
 

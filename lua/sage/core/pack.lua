@@ -23,6 +23,8 @@ function Pack.new(spec)
     local beg_status = "idle"
 
     self.enabled = not disabled
+    self.lifecycle = nil -- will be set later by the manager / lifecycle code
+
     self.stage = stage
     self.status = beg_status
     self.priority = priority
@@ -36,7 +38,6 @@ function Pack.new(spec)
     }
 
     -- vim.pack specific
-    self.lifecycle = nil
     self.active = false
     self.path = ""
     self.rev = ""
@@ -44,8 +45,8 @@ function Pack.new(spec)
     self.tags = {}
 
     self.specs = {}
-    self.specs["user"] = spec
-    self.specs["normalize"] = {}
+    self.specs.user = spec
+    self.specs.normalize = {}
 
     local n_spec = self.specs.normalize
 
@@ -65,6 +66,10 @@ function Pack.new(spec)
     return self
 end
 
+-- ---------------------------------------------------------------------------
+-- Simple setters / getters
+-- ---------------------------------------------------------------------------
+
 function Pack:set_path(path)
     if path ~= nil then
         self.path = path
@@ -72,7 +77,7 @@ function Pack:set_path(path)
 end
 
 function Pack:get_name()
-    return self.specs.normalize.name or ""
+    return (self.specs.normalize and self.specs.normalize.name) or ""
 end
 
 function Pack:set_active(active)
@@ -89,16 +94,14 @@ end
 
 function Pack:set_branches(branches)
     if branches ~= nil then
-        local all_branches = vim.tbl_extend("force", self.branches, branches)
+        self.branches = vim.tbl_extend("force", self.branches or {}, branches)
     end
-    self.branches = all_branches
 end
 
 function Pack:set_tags(tags)
     if tags ~= nil then
-        local all_tags = vim.tbl_extend("force", self.tags, tags)
+        self.tags = vim.tbl_extend("force", self.tags or {}, tags)
     end
-    self.tags = all_tags
 end
 
 function Pack:set_stage(stage)
@@ -114,7 +117,12 @@ function Pack:get_path()
     if self.path ~= "" then
         return self.path
     end
+    return nil
 end
+
+-- ---------------------------------------------------------------------------
+-- Stage / status
+-- ---------------------------------------------------------------------------
 
 function Pack:determine_stage(spec)
     if utils.is_not_enabled(spec) then
@@ -147,7 +155,7 @@ function Pack:determine_stage(spec)
 end
 
 function Pack:set_status(status)
-    local pack_name = self.specs.normalize.name
+    local pack_name = self:get_name()
     local curr_status = self.status
     if curr_status ~= status then
         self.status = status
@@ -165,59 +173,46 @@ function Pack:get_status()
     return self.status
 end
 
+-- ---------------------------------------------------------------------------
+-- Integration with vim.pack
+-- ---------------------------------------------------------------------------
+
 function Pack:get_native()
     local name = self:get_name()
-    local n_ok, res_pack_list = pcall(vim.pack.get, { name })
-
-    if not n_ok then
-        vim.notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
+    if name == "" then
+        return nil
     end
 
-    local n_pack = res_pack_list[1]
-    if n_pack then
-        return n_pack
+    local ok, res_pack_list = pcall(vim.pack.get, { name })
+    if not ok then
+        vim.notify(string.format("[Sage] Pack not found for name '%s'", name), vim.log.levels.ERROR)
+        return nil
     end
+
+    if type(res_pack_list) ~= "table" or #res_pack_list == 0 then
+        return nil
+    end
+
+    return res_pack_list[1]
 end
 
+-- ---------------------------------------------------------------------------
+-- Lifecycle helpers
+-- ---------------------------------------------------------------------------
+
 function Pack:get_task_progress()
-    if not self.lifecycle then
-        return { total = 0, completed = 0, required_completed = 0, required_total = 0, percentage = 0 }
+    -- lifecycle will be set to an object elsewhere which implements :get_progress()
+    if not self.lifecycle or type(self.lifecycle.get_progress) ~= "function" then
+        return {
+            total = 0,
+            completed = 0,
+            required_completed = 0,
+            required_total = 0,
+            percentage = 0,
+        }
     end
+
     return self.lifecycle:get_progress()
 end
 
-function Pack:get_current_task()
-    if not self.lifecycle then
-        return nil
-    end
-    local task, _ = self.lifecycle:get_next_runnable_task()
-    return task
-end
-
-function Pack:get_all_tasks()
-    if not self.lifecycle then
-        return {}
-    end
-    local tasks = {}
-    for _, task_id in ipairs(self.lifecycle.task_order) do
-        table.insert(tasks, self.lifecycle.tasks[task_id])
-    end
-    return tasks
-end
-
-function Pack:run_tasks()
-    if not self.lifecycle then
-        return false, "no lifecycle"
-    end
-    return self.lifecycle:run_next()
-end
-
-function Pack:is_lifecycle_complete()
-    if not self.lifecycle then
-        return false
-    end
-    return self.lifecycle.completed
-end
-
 return Pack
-

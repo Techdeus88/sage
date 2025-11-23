@@ -143,7 +143,7 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
                 message = reason or "Loading pack",
                 pack = pack,
             })
-        end, delay_ms)
+        end, delay_ms + 100)
     end)
 
     -- Execute load
@@ -159,7 +159,6 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
 
         -- Emit finish event
         vim.schedule(function()
-            pack:run_tasks()
             vim.defer_fn(function()
                 Event.emit("pack:config:finish", {
                     name = name,
@@ -168,14 +167,13 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
                     config_duration = pack.times.config_duration,
                     pack = pack,
                 })
-            end, delay_ms + 50)
+            end, delay_ms + 200)
         end)
 
         -- **ADD THIS NEW BLOCK**:
         -- Advance task lifecycle after successful config
         vim.schedule(function()
             vim.defer_fn(function()
-                pack:run_tasks()
             end, delay_ms + 100)
         end)
 
@@ -364,7 +362,6 @@ function LaterLoader:_strategy_idle(packs, opts)
         end)
     )
 end
-
 
 -- ============================================================================
 -- LazyLoader (lazy stage with triggers and dependencies) - FIXED
@@ -763,5 +760,6 @@ function Loader:close_all()
         end
     end
 end
+
 
 return Loader

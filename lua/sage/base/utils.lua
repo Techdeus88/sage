@@ -1,6 +1,6 @@
 local U = {}
 
-local function U.safe_notify(msg, level)
+function U.safe_notify(msg, level)
     vim.schedule(function()
         vim.notify(msg, level)
     end)

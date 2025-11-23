@@ -23,13 +23,12 @@ function M.setup(opts)
 
     local merged_opts = vim.tbl_deep_extend("force", config, opts)
 
-    merged_opts.sage = {
-        start = vim.loop.hrtime(),
-    }
-
     -- Call init safely
     local d_ok, err = pcall(function()
-        dashboard:init(merged_opts.dashboard)
+        dashboard:init({
+            lock_windows = true,
+            auto_focus = true,
+        })
     end)
 
     if not d_ok then
@@ -39,7 +38,7 @@ function M.setup(opts)
     -- Run packs safely
     pcall(function()
         manager:run_packs(merged_opts)
-    end)
+   end)
 end
 
 return M
