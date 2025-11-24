@@ -984,28 +984,41 @@ end
 -- ============================================================================
 -- Keymaps
 -- ============================================================================
+-- In dashboard.lua, replace the setup_keymaps function:
 function Dashboard:setup_keymaps()
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
 
-    vim.keymap.set("n", "i", "<Nop>", { buffer = self.header_buf, silent = true })
-    vim.keymap.set("n", "i", "<Nop>", { buffer = self.content_buf, silent = true })
-    vim.keymap.set("n", "i", "<Nop>", { buffer = self.footer_buf, silent = true })
-    vim.keymap.set("n", "a", "<Nop>", { buffer = self.header_buf, silent = true })
-    vim.keymap.set("n", "a", "<Nop>", { buffer = self.content_buf, silent = true })
-    vim.keymap.set("n", "a", "<Nop>", { buffer = self.footer_buf, silent = true })
+    -- Disable insert mode in all buffers
+    for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
+        vim.keymap.set("n", "i", "<Nop>", { buffer = buf, silent = true })
+        vim.keymap.set("n", "a", "<Nop>", { buffer = buf, silent = true })
+    end
 
-    vim.keymap.set("n", "<Tab>", function()
-        Dashboard.active_tab_index = (Dashboard.active_tab_index % #Dashboard.tabs) + 1
-        Dashboard:refresh_for_tab()
-    end, { buffer = self.content_buf, silent = true, desc = "Next tab" })
+    -- Tab navigation - set on ALL buffers
+    for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
+        vim.keymap.set("n", "<Tab>", function()
+            Dashboard.active_tab_index = (Dashboard.active_tab_index % #Dashboard.tabs) + 1
+            Dashboard:refresh_for_tab()
 
-    vim.keymap.set("n", "<S-Tab>", function()
-        Dashboard.active_tab_index = (Dashboard.active_tab_index - 2 + #Dashboard.tabs) % #Dashboard.tabs + 1
-        Dashboard:refresh_for_tab()
-    end, { buffer = self.content_buf, silent = true, desc = "Previous tab" })
+            -- Ensure focus is on content window after tab switch
+            if Dashboard.content_win and vim.api.nvim_win_is_valid(Dashboard.content_win) then
+                pcall(vim.api.nvim_set_current_win, Dashboard.content_win)
+            end
+        end, { buffer = buf, silent = true, desc = "Next tab" })
 
+        vim.keymap.set("n", "<S-Tab>", function()
+            Dashboard.active_tab_index = (Dashboard.active_tab_index - 2 + #Dashboard.tabs) % #Dashboard.tabs + 1
+            Dashboard:refresh_for_tab()
+            -- Ensure focus is on content window after tab switch
+            if Dashboard.content_win and vim.api.nvim_win_is_valid(Dashboard.content_win) then
+                pcall(vim.api.nvim_set_current_win, Dashboard.content_win)
+            end
+        end, { buffer = buf, silent = true, desc = "Previous tab" })
+    end
+
+    -- Content-specific keymaps
     vim.keymap.set("n", "r", function()
         vim.notify("Refreshing dashboard...", vim.log.levels.INFO)
         vim.schedule(function()
@@ -1042,7 +1055,6 @@ function Dashboard:setup_keymaps()
         display_pack_comparison(row.name)
     end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
 end
-
 -- ============================================================================
 -- Window Management
 -- ============================================================================
