@@ -562,6 +562,14 @@ function Dashboard:add_pack(data)
 
     local on = n_spec.data.on or {}
 
+    -- Debug: Check if 'on' has any data
+    if not next(on) then
+        vim.notify(
+            string.format("[DEBUG] Pack %s has no lazy trigger data", name),
+            vim.log.levels.WARN
+        )
+    end
+
     local row = {
         name = name,
         status = elem.StatusElement.new("status", status, "icon"),
@@ -621,14 +629,30 @@ function Dashboard:update_line(row)
     local deps_text = (#deps_buttons > 0) and (table.concat(deps_buttons, " ")) or ""
     local message_text = row.message:render()
 
+    -- In dashboard.lua, update_line function around line 520:
     local lazy_text = ""
     local info = ""
     local lazy_trigger_type = ""
+
+    -- Only render lazy triggers if pack is in lazy stage AND has lazy data
     if row.stage.value == "lazy" and row.lazy then
+        local lazy_info = row.lazy:get_info()
+
+        -- Debug: Check what we're trying to render
+        if lazy_info.type == "none" or lazy_info.count == 0 then
+        vim.notify(
+            string.format("[DEBUG] Pack %s is lazy but has no trigger data: %s",
+                row.name,
+                vim.inspect(lazy_info)
+            ),
+            vim.log.levels.WARN
+        )
+    else
         lazy_text = row.lazy:render()
-        info = row.lazy:get_info()
+        info = lazy_info
         lazy_trigger_type = info.type
     end
+end
 
     local task_text = ""
     if row.task_progress then
@@ -1159,18 +1183,22 @@ function Dashboard:listen()
         self:update_line(row)
         self:resort_rows()
     end)
-
     register("pack:lazy", function(data)
         local row = self:find(data.name)
         if not row then
             return
         end
+
         row.status:update(data.status)
         row.status_two:update(data.status)
         row.message:update(data.message)
-        if row.lazy and data.trigger then
+
+        -- Only update if we have valid trigger data
+        if row.lazy and data.trigger and next(data.trigger) ~= nil then
             row.lazy:update(data.trigger)
         end
+        -- Don't update if data.trigger is nil - keep existing data
+
         self:update_line(row)
     end)
 
@@ -1453,6 +1481,28 @@ function Dashboard:init(opts)
     vim.api.nvim_create_user_command("SageCleanup", function()
         vim.api.nvim_exec_autocmds("VimLeavePre", {})
     end, { desc = "Trigger Sage cleanup" })
+
+vim.api.nvim_create_user_command("SageDebugLazy", function(opts)
+    local pack_name = opts.args
+    local row = Dashboard:find(pack_name)
+
+    if not row then
+        vim.notify("Pack not found: " .. pack_name, vim.log.levels.ERROR)
+        return
+    end
+
+    local info = {
+        stage = row.stage.value,
+        has_lazy = row.lazy ~= nil,
+        lazy_info = row.lazy and row.lazy:get_info() or "no lazy element",
+        trigger_data = row.lazy and row.lazy.trigger_data or "none",
+    }
+
+    print(vim.inspect(info))
+end, { nargs = 1, desc = "Debug lazy element for a pack" })
+
+
+
 end
 
 return Dashboard

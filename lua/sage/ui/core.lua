@@ -152,6 +152,19 @@ end
 
 -- Update trigger data (for dynamic updates)
 function LazyElement:update(new_trigger_data)
+     -- If we have no existing data, always accept the new data (even if empty)
+    if self.trigger_type == "none" or not self.trigger_data or not next(self.trigger_data) then
+        self.trigger_data = new_trigger_data or {}
+        self:_parse_trigger_data()
+        return
+    end
+
+    -- If we have existing valid data, only update if new data is also valid
+    if new_trigger_data and next(new_trigger_data) then
+        self.trigger_data = new_trigger_data
+        self:_parse_trigger_data()
+    end
+
     self.trigger_data = new_trigger_data or {}
     self:_parse_trigger_data()
 end
@@ -159,10 +172,15 @@ end
 -- Render as button (similar to timing buttons)
 -- Returns: "[icon type: value1, value2]"
 function LazyElement:render()
-    -- if self.trigger_type == "none" or #self.trigger_values == 0 then
-    -- 	return "[󰒲 lazy]" -- Generic lazy icon
-    -- end
-    --
+    if not self.visible then
+        return ""
+    end
+
+    -- Return cached render if data was cleared
+    if self.trigger_type == "none" or #self.trigger_values == 0 then
+        return self._last_render or "" -- ← Fallback to last valid render
+    end
+
     local icon = TRIGGER_ICONS[self.trigger_type] or ""
 
     -- Format trigger type label
@@ -194,7 +212,9 @@ function LazyElement:render()
         value_str = value_str:sub(1, max_length - 3) .. "..."
     end
 
-    return string.format("[%s %s: %s]", icon, type_label, value_str)
+    local result = string.format("[%s %s: %s]", icon, type_label, value_str)
+    self._last_render = result -- ← Cache successful render
+    return result
 end
 
 -- Render detailed version (for expanded view)
@@ -604,13 +624,14 @@ TaskProgressElement.__index = TaskProgressElement
 function TaskProgressElement.new(key, progress_data)
     local self = setmetatable({}, TaskProgressElement)
     self.key = key
-    self.value = progress_data or {
-        total = 0,
-        completed = 0,
-        required_completed = 0,
-        required_total = 0,
-        percentage = 0
-    }
+    self.value = progress_data
+        or {
+            total = 0,
+            completed = 0,
+            required_completed = 0,
+            required_total = 0,
+            percentage = 0,
+        }
     return self
 end
 
@@ -622,8 +643,12 @@ end
 
 function TaskProgressElement:render()
     local p = self.value
-    if p.total == 0 then return "" end
-    if p.completed == p.total then return "[✓]" end
+    if p.total == 0 then
+        return ""
+    end
+    if p.completed == p.total then
+        return "[✓]"
+    end
     if p.required_completed < p.required_total then
         return string.format("[%d/%d*]", p.required_completed, p.required_total)
     end
