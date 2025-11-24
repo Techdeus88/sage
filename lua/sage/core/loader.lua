@@ -1,7 +1,6 @@
 -- ============================================================================
 -- UNIVERSAL LOADER WITH SUB CLASSES
 -- ============================================================================
-local Event = require("sage.core.bus")
 
 -- ============================================================================
 -- CORE LOAD PACK FUNCTION
@@ -87,8 +86,13 @@ end
 local BaseLoader = {}
 BaseLoader.__index = BaseLoader
 
-function BaseLoader.new()
+function BaseLoader.new(container)
     local self = setmetatable({}, BaseLoader)
+    self.container = container
+    self.manager = container:resolve("manager")
+    self.bus = container:resolve("bus")
+    self.logger = container:resolve("logger")
+    
     self.loading_queue = {}
     self.timers = {} -- Track all timers for cleanup
     self.autocmds = {} -- Track autocmds for cleanup
@@ -124,6 +128,7 @@ end
 
 -- Safe loading with proper state management
 function BaseLoader:load_pack_safe(pack, reason, delay_ms)
+    local bus = self.bus
     if not pack or not pack.specs or not pack.specs.normalize then
         return false, "invalid pack"
     end
@@ -143,7 +148,7 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
     -- Emit start event
     vim.schedule(function()
         vim.defer_fn(function()
-            Event.emit("pack:config:start", {
+            bus.emit("pack:config:start", {
                 name = name,
                 status = pack:get_status(),
                 message = reason or "Loading pack",
@@ -166,7 +171,7 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
         -- Emit finish event
         vim.schedule(function()
             vim.defer_fn(function()
-                Event.emit("pack:config:finish", {
+                bus.emit("pack:config:finish", {
                     name = name,
                     status = pack:get_status(),
                     message = "Ready",
@@ -181,7 +186,7 @@ function BaseLoader:load_pack_safe(pack, reason, delay_ms)
         pack.failed = true
         pack:set_status("failed")
 
-        Event.emit("pack:failed", {
+        bus.emit("pack:failed", {
             name = name,
             status = pack:get_status(),
             reason = tostring(err),
@@ -226,8 +231,8 @@ end
 local EagerLoader = setmetatable({}, { __index = BaseLoader })
 EagerLoader.__index = EagerLoader
 
-function EagerLoader.new()
-    return setmetatable(BaseLoader.new(), EagerLoader)
+function EagerLoader.new(container)
+    return setmetatable(BaseLoader.new(container), EagerLoader)
 end
 
 function EagerLoader:start(packs, manager, opts)
@@ -246,15 +251,15 @@ end
 local LaterLoader = setmetatable({}, { __index = BaseLoader })
 LaterLoader.__index = LaterLoader
 
-function LaterLoader.new()
-    return setmetatable(BaseLoader.new(), LaterLoader)
+function LaterLoader.new(container)
+    return setmetatable(BaseLoader.new(container), LaterLoader)
 end
 
 function LaterLoader:start(packs, manager, opts)
     -- Set initial status for all later packs BEFORE applying strategy
     for _, pack in ipairs(packs or {}) do
         pack:set_status("pending")
-        Event.emit("pack:config:start", {
+        self.bus.emit("pack:config:start", {
             name = pack.specs.normalize.name,
             status = "pending",
             message = "Waiting for later stage trigger",
@@ -376,8 +381,8 @@ end
 local LazyLoader = setmetatable({}, { __index = BaseLoader })
 LazyLoader.__index = LazyLoader
 
-function LazyLoader.new()
-    local self = setmetatable(BaseLoader.new(), LazyLoader)
+function LazyLoader.new(container)
+    local self = setmetatable(BaseLoader.new(container), LazyLoader)
     self.dependency_timers = {}
     self.event_listeners = {}
     return self
@@ -435,6 +440,8 @@ end
 
 -- Setup dependency-based loading
 function LazyLoader:setup_dependency_loading(pack, manager, dep_chain)
+    local bus = self.bus
+    print(vim.inspect(bus))
     local name = pack.specs.normalize.name
     local loaded_deps = {}
     local has_attempted = false
@@ -491,7 +498,7 @@ function LazyLoader:setup_dependency_loading(pack, manager, dep_chain)
             end)
         else
             pack:set_status("lazy")
-            Event.emit("pack:lazy:waiting", {
+            self.bus.emit("pack:lazy:waiting", {
                 name = name,
                 status = pack:get_status(),
                 message = string.format("Waiting for: %s", table.concat(missing, ", ")),
@@ -600,7 +607,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         end
 
         pack:set_status("lazy")
-        Event.emit("pack:lazy", {
+        self.bus.emit("pack:lazy", {
             name = name,
             status = pack:get_status(),
             message = "Waiting for events",
@@ -628,7 +635,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         end
 
         pack:set_status("lazy")
-        Event.emit("pack:lazy", {
+        self.bus.emit("pack:lazy", {
             name = name,
             status = pack:get_status(),
             message = "Waiting for filetype",
@@ -657,7 +664,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         end
 
         pack:set_status("lazy")
-        Event.emit("pack:lazy", {
+        self.bus.emit("pack:lazy", {
             name = name,
             status = pack:get_status(),
             message = "Waiting for command",
@@ -692,7 +699,7 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         end
 
         pack:set_status("lazy")
-        Event.emit("pack:lazy", {
+        self.bus.emit("pack:lazy", {
             name = name,
             status = pack:get_status(),
             message = "Waiting for keymap",
@@ -710,8 +717,8 @@ end
 local DisabledLoader = setmetatable({}, { __index = BaseLoader })
 DisabledLoader.__index = DisabledLoader
 
-function DisabledLoader.new()
-    return setmetatable(BaseLoader.new(), DisabledLoader)
+function DisabledLoader.new(container)
+    return setmetatable(BaseLoader.new(container), DisabledLoader)
 end
 
 function DisabledLoader:start(packs, manager, opts)
@@ -725,7 +732,7 @@ function DisabledLoader:start(packs, manager, opts)
 
             vim.schedule(function()
                 vim.defer_fn(function()
-                    Event.emit("pack:config:start", {
+                    self.bus.emit("pack:config:start", {
                         name = name,
                         status = "disabling",
                         message = "Setting to disabled",
@@ -741,7 +748,7 @@ function DisabledLoader:start(packs, manager, opts)
 
             vim.schedule(function()
                 vim.defer_fn(function()
-                    Event.emit("pack:config:finish", {
+                    self.bus.emit("pack:config:finish", {
                         name = name,
                         status = "disabled",
                         message = "Pack disabled",
@@ -757,19 +764,27 @@ end
 -- ============================================================================
 -- Unified Interface
 -- ============================================================================
-local Loader = {
-    Eager = EagerLoader.new(),
-    Later = LaterLoader.new(),
-    Lazy = LazyLoader.new(),
-    Disabled = DisabledLoader.new(),
-}
+local Loader = setmetatable({}, { __index = BaseLoader })
+Loader.__index = Loader
 
-function Loader.run(stage, packs, manager, opts)
+function Loader.new(container)
+    local self = setmetatable(BaseLoader.new(container), Loader)
+    self.loader = {
+        now = EagerLoader.new(container),
+        later = LaterLoader.new(container),
+        lazy = LazyLoader.new(container),
+        disabled = DisabledLoader.new(container)
+    }
+    
+    return self
+end
+
+function Loader:run(stage, packs, manager, opts)
     local stage_map = {
-        now = Loader.Eager,
-        later = Loader.Later,
-        lazy = Loader.Lazy,
-        disabled = Loader.Disabled,
+        now = self.loader.now,
+        later = self.loader.later,
+        lazy = self.loader.lazy,
+        disabled = self.loader.disabled,
     }
 
     local impl = stage_map[stage]

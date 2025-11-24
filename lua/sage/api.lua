@@ -2,7 +2,7 @@ local Api = {}
 Api.__index = Api
 Api._singleton = nil
 
-function Api.new()
+function Api.new(container)
     local self = setmetatable({}, Api)
 
     self.stats = {}

@@ -16,8 +16,9 @@ function Manager:get_singleton()
     return Manager._singleton
 end
 
-function Manager.new()
+function Manager.new(container)
     local self = setmetatable({}, Manager)
+    self.container = container
     self.packs = {}
     self.install_times = {}
     self.delay_time = 100
@@ -322,9 +323,8 @@ end
 -- ============================================================================
 function Manager:run_packs(opts)
     opts = opts or {}
-    local Event = require("sage.core.bus")
-    local Loader = require("sage.core.loader")
-
+    local Event = self.container:resolve("bus")
+    local Loader = self.container:resolve("loader")
     -- Load specs
     local all_specs = self:load_specs(opts.directory)
     if #all_specs == 0 then
@@ -350,13 +350,14 @@ function Manager:run_packs(opts)
     end
 
     local function process_stages(by_stage)
+     
         local function process_stage(stage_name, packs)
             if #packs == 0 then
                 utils.safe_notify(string.format("[STAGE] %s: 0 packs, skipping", stage_name), vim.log.levels.DEBUG, {})
                 return
             end
 
-            local ok, err = pcall(Loader.run, stage_name, packs, self, opts)
+            local ok, err = pcall(function() Loader:run(stage_name, packs, self, opts) end)
             if not ok then
                 utils.safe_notify(
                     string.format("Stage '%s' loading failed: %s", stage_name, tostring(err)),

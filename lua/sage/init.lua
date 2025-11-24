@@ -14,20 +14,44 @@ end
 
 local M = {}
 
-function M.setup(opts)
-    pcall(require, "sage.base.global")
-    pcall(require, "sage.base.command")
-    local _, config = pcall(require, "sage.base.config")
-    local _, dashboard = pcall(require, "sage.ui.dashboard")
-    local _, manager = pcall(require, "sage.manager")
 
-    local merged_opts = vim.tbl_deep_extend("force", config, opts)
+-- ============================================================================
+-- FILE:sage/init.lua
+-- Main Sage initialization
+-- ============================================================================
+local function setup_monitoring(bus)
+end
+
+local function setup_container()
+    return require("sage.core.container").get_instance()
+end
+
+local function setup_orchestrator(opts)
+    local Orchestrator = require("sage.core.orchestrator")
+    local orchestrator = Orchestrator.new(opts)
+    orchestrator:execute_initialization()
+    return orchestrator
+end
+
+function M.setup(opts)
+    local SageDefaultConfig = require("sage.base.config")
+    opts = vim.tbl_deep_extend("force", SageDefaultConfig, opts or {})
+    
+    local orchestrator = setup_orchestrator(opts)
+     -- Extract services
+    local container = orchestrator.container
+    local logger = orchestrator.logger
+    local manager = orchestrator.manager
+    local dashboard = orchestrator.dashboard
+    local loader = orchestrator.loader
+    local bus = orchestrator.bus
+    local coordinator = orchestrator.coordinator
 
     -- Call init safely
     local d_ok, err = pcall(function()
         dashboard:init({
-            lock_windows = true,
-            auto_focus = true,
+            lock_windows = opts.lock_windows,
+            auto_focus = opts.auto_focus
         })
     end)
 
@@ -37,7 +61,7 @@ function M.setup(opts)
 
     -- Run packs safely
     pcall(function()
-        manager:run_packs(merged_opts)
+        manager:run_packs(opts)
    end)
 end
 
