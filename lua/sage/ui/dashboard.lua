@@ -301,8 +301,7 @@ function Dashboard:render_header()
             or string.format("  %s  ", tab.label)
 
         local hl = (i == self.active_tab_index) and "SageTabActive" or "SageTab"
-
-        vim.api.nvim_buf_add_highlight(self.header_buf, Dashboard.ns_ui, hl, 1, padding + col, padding + col + #text)
+        vim.api.nvim_buf_set_extmark(self.header_buf, Dashboard.ns_ui, 1, padding + col + #text, {})
         col = col + #text
     end
 
@@ -1368,13 +1367,13 @@ function Dashboard:batch_update_lines(row_updates)
         return
     end
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
 
     for _, row in ipairs(row_updates) do
         self:update_line_internal(row)
     end
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
     self:update_footer_debounced()
 end
 
