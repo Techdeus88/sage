@@ -469,6 +469,7 @@ function LazyLoader:setup_dependency_loading(pack, manager, dep_chain)
         if has_attempted or pack.loaded or self:is_loading(pack) then
             return
         end
+        local bus = self.bus
 
         local all_loaded = true
         local missing = {}
@@ -516,7 +517,7 @@ function LazyLoader:setup_dependency_loading(pack, manager, dep_chain)
         if dep_pack and dep_pack.loaded then
             loaded_deps[dep_name] = true
         else
-            local listener_id = Event.on("pack:config:finish", function(data)
+            local listener_id = bus.on("pack:config:finish", function(data)
                 if data.name == dep_name and not has_attempted then
                     loaded_deps[dep_name] = true
                     check_and_load()

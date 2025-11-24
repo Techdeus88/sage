@@ -137,7 +137,7 @@ function Orchestrator:init_loader()
         error("Manager, Bus, and Logger must be initialized before loader")
     end
     local Loader = require("sage.core.loader")
-    self.loader = Loader.new(self.container, self.manager, self.bus, self.logger)
+    self.loader = Loader.new(self.container)
     self.container:register("loader", function()
         return self.loader
     end)
