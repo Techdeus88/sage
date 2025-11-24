@@ -565,7 +565,9 @@ function Dashboard:add_pack(data)
     if not next(on) then
         vim.notify(string.format("[DEBUG] Pack %s has no lazy trigger data", name), vim.log.levels.WARN)
     end
+
     local trigger_data = (n_spec.data.on and next(n_spec.data.on)) and n_spec.data.on or nil
+
     local row = {
         name = name,
         status = elem.StatusElement.new("status", status, "icon"),
@@ -577,11 +579,10 @@ function Dashboard:add_pack(data)
             stage = { now = icons.now, later = icons.later, lazy = icons.lazy, disabled = icons.disabled },
         }),
         task_progress = elem.TaskProgressElement.new("task_progress", Pack:get_task_progress()),
-        deps = elem.ListElement.new("deps", utils.get_dep_names(n_spec.data.depends or {})),
         install_duration = elem.DurationElement.new("install_duration", Pack.times.install_duration),
         config_duration = elem.DurationElement.new("config_duration", Pack.times.config_duration),
-        lazy = elem.LazyElement.new("lazy", on),
         message = elem.TextElement.new("message", message),
+        deps = elem.ListElement.new("deps", utils.get_dep_names(n_spec.data.depends or {})),
         lazy = elem.LazyElement.new("lazy", trigger_data),
     }
 
@@ -661,9 +662,9 @@ function Dashboard:update_line(row)
         task_text,
         install_button,
         config_button,
+        message_text,
         deps_text,
-        lazy_text,
-        message_text
+        lazy_text
     )
 
     local padded = add_padding_to_line(line_text, 1)

@@ -584,9 +584,12 @@ function TaskProgressElement:render()
         return "[✓]"
     end
     if p.required_completed < p.required_total then
-        return string.format("[%d/%d*]", p.required_completed, p.required_total)
+        return string.format("%d/%d*", p.required_completed, p.required_total)
     end
-    return string.format("[%d/%d]", p.completed, p.total)
+    local remaining = p.required_total - p.required_completed
+    local prefix = " 󰸞 "
+    local suffix = string.format("%d tasks remaining", remaining)
+    return prefix .. string.format("(%d/%d)", p.completed, p.total) .. suffix
 end
 
 return {
