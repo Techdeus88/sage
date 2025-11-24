@@ -124,206 +124,140 @@ LazyElement.__index = LazyElement
 
 -- Icon mapping for different trigger types
 local TRIGGER_ICONS = {
-    events = icons.event or "", -- Event icon
-    fts = icons.filetype or "󰈔", -- Filetype icon
-    cmds = icons.command or "", -- Command icon
-    keys = icons.keymap or "󰌓", -- Keymap icon
+    events = icons.event or "󰃆",
+    fts = icons.filetype or "󰈔",
+    cmds = icons.command or "",
+    keys = icons.keymap or "󰌌",
 }
 
--- Create new LazyTriggerElement
--- @param name: element identifier
--- @param trigger_data: table with trigger information from pack.specs.normalize.data.on
 function LazyElement.new(name, trigger_data)
-    local self = setmetatable({}, LazyElement)
-    self.name = name
-    self.trigger_data = trigger_data or {}
-    self.trigger_type = nil
-    self.trigger_values = {}
-    self:_parse_trigger_data()
-    return self
+    local self = Element.new(name, trigger_data)
+    return setmetatable(self, LazyElement)
 end
 
 function LazyElement:render()
-    if not self.visible then
-        return ""
-    end
-    return string.format("[%s %s]", self.lazy_map[self.type], self.value)
-end
-
--- Update trigger data (for dynamic updates)
-function LazyElement:update(new_trigger_data)
-     -- If we have no existing data, always accept the new data (even if empty)
-    if self.trigger_type == "none" or not self.trigger_data or not next(self.trigger_data) then
-        self.trigger_data = new_trigger_data or {}
-        self:_parse_trigger_data()
-        return
-    end
-
-    -- If we have existing valid data, only update if new data is also valid
-    if new_trigger_data and next(new_trigger_data) then
-        self.trigger_data = new_trigger_data
-        self:_parse_trigger_data()
-    end
-
-    self.trigger_data = new_trigger_data or {}
-    self:_parse_trigger_data()
-end
-
--- Render as button (similar to timing buttons)
--- Returns: "[icon type: value1, value2]"
-function LazyElement:render()
-    if not self.visible then
+    if not self.visible or not self.value or not next(self.value) then
         return ""
     end
 
-    -- Return cached render if data was cleared
-    if self.trigger_type == "none" or #self.trigger_values == 0 then
-        return self._last_render or "" -- ← Fallback to last valid render
+    local trigger_data = self.value
+    local trigger_type, trigger_values = self:_parse(trigger_data)
+
+    if trigger_type == "none" or #trigger_values == 0 then
+        return ""
     end
 
-    local icon = TRIGGER_ICONS[self.trigger_type] or ""
+    local icon = TRIGGER_ICONS[trigger_type] or ""
+    local type_label = trigger_type == "fts" and "ft" or trigger_type == "cmds" and "cmd" or trigger_type
 
-    -- Format trigger type label
-    local type_label = self.trigger_type
-    if self.trigger_type == "fts" then
-        type_label = "ft"
-    elseif self.trigger_type == "cmds" then
-        type_label = "cmd"
-    end
-
-    -- Truncate values if too many
+    -- Truncate if too many values
     local max_display = 3
     local display_values = {}
-
-    for i = 1, math.min(#self.trigger_values, max_display) do
-        table.insert(display_values, self.trigger_values[i])
+    for i = 1, math.min(#trigger_values, max_display) do
+        table.insert(display_values, trigger_values[i])
     end
 
     local value_str = table.concat(display_values, ", ")
-
-    -- Add ellipsis if truncated
-    if #self.trigger_values > max_display then
-        value_str = value_str .. " +" .. (#self.trigger_values - max_display)
+    if #trigger_values > max_display then
+        value_str = value_str .. " +" .. (#trigger_values - max_display)
     end
 
-    -- Limit total length
-    local max_length = 30
-    if #value_str > max_length then
-        value_str = value_str:sub(1, max_length - 3) .. "..."
+    -- Limit length
+    if #value_str > 30 then
+        value_str = value_str:sub(1, 27) .. "..."
     end
 
-    local result = string.format("[%s %s: %s]", icon, type_label, value_str)
-    self._last_render = result -- ← Cache successful render
-    return result
+    return string.format("[%s %s: %s]", icon, type_label, value_str)
 end
 
--- Render detailed version (for expanded view)
--- Returns: full list without truncation
 function LazyElement:render_detailed()
-    if self.trigger_type == "none" or #self.trigger_values == 0 then
+    if not self.value or not next(self.value) then
         return "lazy (no triggers)"
     end
 
-    local icon = TRIGGER_ICONS[self.trigger_type] or ""
+    local trigger_type, trigger_values = self:_parse(self.value)
 
-    -- Format trigger type label
-    local type_label = self.trigger_type
-    if self.trigger_type == "fts" then
-        type_label = "filetypes"
-    elseif self.trigger_type == "cmds" then
-        type_label = "commands"
-    elseif self.trigger_type == "events" then
-        type_label = "events"
-    elseif self.trigger_type == "keys" then
-        type_label = "keymaps"
+    if trigger_type == "none" or #trigger_values == 0 then
+        return "lazy (no triggers)"
     end
 
-    local value_str = table.concat(self.trigger_values, ", ")
+    local icon = TRIGGER_ICONS[trigger_type] or ""
+    local type_label = trigger_type == "fts" and "filetypes"
+        or trigger_type == "cmds" and "commands"
+        or trigger_type == "events" and "events"
+        or trigger_type == "keys" and "keymaps"
+        or trigger_type
 
-    return string.format("%s %s: %s", icon, type_label, value_str)
+    return string.format("%s %s: %s", icon, type_label, table.concat(trigger_values, ", "))
 end
 
--- Check if has specific trigger type
-function LazyElement:has_trigger(trigger_type)
-    return self.trigger_type == trigger_type
-end
-
--- Get raw trigger information
 function LazyElement:get_info()
+    if not self.value or not next(self.value) then
+        return { type = "none", values = {}, count = 0 }
+    end
+
+    local trigger_type, trigger_values = self:_parse(self.value)
     return {
-        type = self.trigger_type,
-        values = self.trigger_values,
-        count = #self.trigger_values,
+        type = trigger_type,
+        values = trigger_values,
+        count = #trigger_values,
     }
 end
--- Parse trigger data to determine type and values
-function LazyElement:_parse_trigger_data()
-    local on = self.trigger_data
 
-    -- Check for events
+-- Simple parse function - no state mutation
+function LazyElement:_parse(on)
+    if not on or not next(on) then
+        return "none", {}
+    end
+
+    -- Check events
     local events = on.events or on.event
     if events then
-        self.trigger_type = "events"
-        self.trigger_values = type(events) == "table" and events or { events }
-        return
+        return "events", type(events) == "table" and events or { events }
     end
 
-    -- Check for filetypes
+    -- Check filetypes
     local fts = on.fts or on.ft
     if fts then
-        self.trigger_type = "fts"
-        self.trigger_values = type(fts) == "table" and fts or { fts }
-        return
+        return "fts", type(fts) == "table" and fts or { fts }
     end
 
-    -- Check for commands
+    -- Check commands
     local cmds = on.cmds or on.cmd
     if cmds then
-        self.trigger_type = "cmds"
-        self.trigger_values = type(cmds) == "table" and cmds or { cmds }
-        return
+        return "cmds", type(cmds) == "table" and cmds or { cmds }
     end
 
-    -- Check for keys
+    -- Check keys
     local keys = on.keys
     if keys then
-        self.trigger_type = "keys"
         local key_list = type(keys) == "table" and keys or { keys }
-
-        -- Extract key strings from key specs
-        self.trigger_values = {}
+        local key_values = {}
         for _, key in ipairs(key_list) do
             if type(key) == "string" then
-                table.insert(self.trigger_values, key)
+                table.insert(key_values, key)
             elseif type(key) == "table" then
                 local lhs = key[1] or key.lhs or ""
                 if lhs ~= "" then
-                    table.insert(self.trigger_values, lhs)
+                    table.insert(key_values, lhs)
                 end
             end
         end
-        return
+        return "keys", key_values
     end
 
-    -- Check for "after" dependencies
+    -- Check after/before
     local after = on.after
     if after then
-        self.trigger_type = "after"
-        self.trigger_values = type(after) == "table" and after or { after }
-        return
+        return "after", type(after) == "table" and after or { after }
     end
 
-    -- Check for "before" dependencies
     local before = on.before
     if before then
-        self.trigger_type = "before"
-        self.trigger_values = type(before) == "table" and before or { before }
-        return
+        return "before", type(before) == "table" and before or { before }
     end
 
-    -- No triggers found
-    self.trigger_type = "none"
-    self.trigger_values = {}
+    return "none", {}
 end
 
 local StatusElement = setmetatable({}, { __index = Element })
