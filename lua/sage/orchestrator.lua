@@ -2,28 +2,33 @@
 -- FILE: core/orchestrator.lua
 -- Initialization Orchestrator - Controls startup sequence
 -- ============================================================================
+
+-- ============================================================================
+-- FILE: core/orchestrator.lua
+-- Initialization Orchestrator - Controls startup sequence
+-- ============================================================================
 local Orchestrator = {}
 Orchestrator.__index = Orchestrator
 
 function Orchestrator.new(opts)
     local self = setmetatable({}, Orchestrator)
     self.opts = opts or {}
+    self.initialized = false
+
     self.container = nil
     self.bus = nil
     self.logger = nil
     self.manager = nil
-    self.stats = nil
+    self.api = nil
     self.loader = nil
     self.ui = nil
-    self.initialized = false
+    self.dashboard = nil
     return self
 end
 
 function Orchestrator:init_base()
-    require("sage.base.global")
-    -- require("sage.core.notify").init()
-    -- require("sage.core.windows")
-    require("sage.base.command")
+    require("sage.base.global").init()
+    require("sage.base.notify").init()
 end
 
 function Orchestrator:init_container()
@@ -32,18 +37,28 @@ function Orchestrator:init_container()
     self.container:register("orchestrator", function()
         return self
     end)
-
     self:log("Orchestrator", "Container initialized")
+end
+
+function Orchestrator:init_command()
+    if not self.container then
+        error("Container must be initialized first")
+    end
+    if not self.bus or not self.api or not self.loader or not self.dashboard then
+        error("Bus, API, Loader, and Dashboard must be initialized before commands")
+    end
+    require("sage.base.command").init(self.container)
+    self:log("Orchestrator", "Commands initialized")
 end
 
 function Orchestrator:init_bus()
     if not self.container then
         error("Container must be initialized first")
     end
-    local EventBus = require("sage.core.bus")
-    -- local EventBridge = require("sage.services.event.bridge")
 
+    local EventBus = require("sage.core.bus")
     self.bus = EventBus
+    -- local EventBridge = require("sage.services.event.bridge")
     -- self.bus.attach_bridge(EventBridge.new())
 
     self.container:register("bus", function()
@@ -53,16 +68,16 @@ function Orchestrator:init_bus()
 end
 
 function Orchestrator:init_logger()
-     if not self.bus then
-         error("Bus must be initialized before logger")
-     end
-     local Logger = require("sage.base.logger")
-     self.logger = Logger:get_instance()
-     self.logger:set_bus(self.bus)
-     self.container:register("logger", function()
-         return self.logger
-     end, { lazy = false })
-     self:log("Orchestrator", "Logger initialized")
+    if not self.bus then
+        error("Bus must be initialized before logger")
+    end
+    local Logger = require("sage.base.logger")
+    self.logger = Logger:get_instance()
+    self.logger:set_bus(self.bus)
+    self.container:register("logger", function()
+        return self.logger
+    end, { lazy = false })
+    self:log("Orchestrator", "Logger initialized")
 end
 
 function Orchestrator:init_utils()
@@ -77,7 +92,7 @@ function Orchestrator:init_manager()
     if not self.logger then
         error("Logger must be initialized before manager")
     end
-    local SageManager = require("sage.manager")
+    local SageManager = require("sage.core.manager")
     self.manager = SageManager.new(self.container)
     self.container:register("manager", function()
         return self.manager
@@ -93,43 +108,52 @@ function Orchestrator:init_pack()
     self:log("Orchestrator", "SagePack registered")
 end
 
--- function Orchestrator:init_deps()
---     local Deps = require("sage.services.deps")
---     self.container:register("deps", function()
---         return Deps
---     end)
---     self:log("Orchestrator", "Deps registered")
--- end
---
-function Orchestrator:init_stats()
+function Orchestrator:init_deps()
+    local Deps = require("sage.core.dep")
+    self.container:register("deps", function()
+        return Deps
+    end)
+    self:log("Orchestrator", "Deps registered")
+end
+
+function Orchestrator:init_api()
     if not self.manager then
-        error("Manager must be initialized before stats")
+        error("Manager must be initialized before api & stats")
     end
     local SageApi = require("sage.api")
-    self.api = SageApi:new(self.container)
+    self.api = SageApi.new(self.container)
     self.container:register("api", function()
         return self.api
     end, { lazy = false })
-    self:log("Orchestrator", "Stats initialized and listening")
+    self:log("Orchestrator", "Sage API & Stats initialized and listening")
 end
 
 function Orchestrator:init_ui()
-    if not self.manager then
-        error("Manager must be initialized before UI")
+    if not self.manager or not self.bus then
+        error("Manager, Bus must be initialized before UI")
     end
 
-    local bufnr = vim.api.nvim_create_buf(false, true)
-
+    -- Dashboard is a singleton table, not a class with .new()
     local SageDashboard = require("sage.ui.dashboard")
+    local SageElements = require("sage.ui.core")
+    local SageIcons = require("sage.ui.icons")
+    
+    -- Dashboard is the instance itself, not a class
     self.dashboard = SageDashboard
+
     self.container:register("dashboard", function()
         return self.dashboard
     end, { lazy = false })
+    
     self:log("Orchestrator", "UI initialized")
 
-    if not self.dashboard then
-        error("UI must be initialized before renderer")
-    end
+    -- Initialize the dashboard with options
+    self.dashboard:init(self.container, SageElements, SageIcons, {
+        lock_windows = self.opts.lock_windows,
+        auto_focus = self.opts.auto_focus, 
+    })
+    
+    self:log("Orchestrator", "Dashboard initialized with options")
 end
 
 function Orchestrator:init_loader()
@@ -146,14 +170,20 @@ end
 
 function Orchestrator:init_task()
     if not self.manager or not self.bus or not self.logger then
-        error("Manager, Bus, and Logger must be initialized before loader")
+        error("Manager, Bus, and Logger must be initialized before tasks")
     end
+
+    local Task = require("sage.core.tasks.task")
     local TaskBuilder = require("sage.core.tasks.builder")
     local TaskLifecycle = require("sage.core.tasks.lifecycle")
     local TaskSystem = require("sage.core.tasks.system")
-    self.coordinator = TaskLifecycle.new(self.container)
+
+    self.task_coordinator = TaskLifecycle.new(self.container)
+    self.task_builder = TaskBuilder
+    self.task_system = TaskSystem
+    self.task = Task
     self.container:register("task_coordinator", function()
-        return self.coordinator
+        return self.task_coordinator  -- Fixed: was self.coordinator
     end, { lazy = false })
     self:log("Orchestrator", "Task coordinator initialized")
 end
@@ -165,18 +195,19 @@ function Orchestrator:execute_initialization()
     end
 
     self:log("Orchestrator", "Starting initialization sequence")
-    self:init_base()
     self:init_container()
+    self:init_base()
     self:init_bus()
     self:init_logger()
     self:init_utils()
     self:init_pack()
-    -- self:init_deps()
+    self:init_deps()
     self:init_manager()
-    self:init_stats()
+    self:init_api()
     self:init_ui()
     self:init_loader()
     self:init_task()
+    self:init_command()
 
     self.initialized = true
     self:log("Orchestrator", "Initialization complete")
@@ -187,7 +218,7 @@ function Orchestrator:log(source, msg)
     if self.logger then
         self.logger:debug(source, msg)
     else
-        -- vim.api.nvim_echo({ { source, msg }}, false, {})
+        vim.api.nvim_echo({ { string.format("[%s] %s", source, msg) } }, false, {})
     end
 end
 

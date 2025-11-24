@@ -7,8 +7,7 @@ local init_global = function()
         end,
     }
 
-    _G.SageGlobal = global
+    _G.Sage = global
 end
 
-init_global()
-
+return { init = init_global }

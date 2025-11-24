@@ -1,24 +1,12 @@
 -- SAGE PACK MANAGER - FIXED & OPTIMIZED WITH SYNCHRONOUS WAIT
 -- ============================================================================
-local utils = require("sage.base.utils")
-
 local Manager = {}
 Manager.__index = Manager
-Manager._singleton = nil
-
--- ============================================================================
--- Singleton Pattern
--- ============================================================================
-function Manager:get_singleton()
-    if Manager._singleton == nil then
-        Manager._singleton = Manager.new()
-    end
-    return Manager._singleton
-end
 
 function Manager.new(container)
     local self = setmetatable({}, Manager)
     self.container = container
+    self.utils = container:resolve("utils")
     self.packs = {}
     self.install_times = {}
     self.delay_time = 100
@@ -56,6 +44,7 @@ end
 -- Batch Installation with Callback-Based Tracking (FIXED)
 -- ============================================================================
 function Manager:install_activate_batch(pack_groups, on_complete)
+    local utils = self.utils
     local Event = require("sage.core.bus")
 
     -- Flatten all packs from all stages
@@ -106,32 +95,36 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
     -- Setup timeout timer in case some packs never call load()
     completion_timer = vim.loop.new_timer()
-    completion_timer:start(30000, 0, vim.schedule_wrap(function()
-        if install_finish_count < total_to_install then
-            utils.safe_notify(
-                string.format("Installation timeout: %d/%d packs completed", install_finish_count, total_to_install),
-                vim.log.levels.WARN
-            )
+    completion_timer:start(
+        30000,
+        0,
+        vim.schedule_wrap(function()
+            if install_finish_count < total_to_install then
+                utils.safe_notify(
+                    string.format("Installation timeout: %d/%d packs completed", install_finish_count, total_to_install),
+                    vim.log.levels.WARN
+                )
 
-            -- Mark remaining packs as failed
-            for _, pack in ipairs(all_packs) do
-                if not pack.installed then
-                    table.insert(failed_packs, pack.specs.normalize.name)
-                    pack:set_status("failed")
+                -- Mark remaining packs as failed
+                for _, pack in ipairs(all_packs) do
+                    if not pack.installed then
+                        table.insert(failed_packs, pack.specs.normalize.name)
+                        pack:set_status("failed")
+                    end
+                end
+
+                if on_complete then
+                    on_complete(false, {
+                        installed_count = install_finish_count,
+                        failed_count = total_to_install - install_finish_count,
+                        failed_packs = failed_packs,
+                        error = "Installation timeout",
+                    })
                 end
             end
-
-            if on_complete then
-                on_complete(false, {
-                    installed_count = install_finish_count,
-                    failed_count = total_to_install - install_finish_count,
-                    failed_packs = failed_packs,
-                    error = "Installation timeout",
-                })
-            end
-        end
-        completion_timer:close()
-    end))
+            completion_timer:close()
+        end)
+    )
 
     -- Single batch installation with callback tracking
     local ok, err = pcall(vim.pack.add, n_specs, {
@@ -271,6 +264,7 @@ end
 -- Load Pack Specs from Directory
 -- ============================================================================
 function Manager:load_specs(specs_dir)
+    local utils = self.utils
     local all_specs = {}
     local seen_names = {}
     local pre_path = vim.fn.stdpath("config") .. "/lua"
@@ -322,6 +316,7 @@ end
 -- Main Entry Point: run_packs method
 -- ============================================================================
 function Manager:run_packs(opts)
+    local utils = self.utils
     opts = opts or {}
     local Event = self.container:resolve("bus")
     local Loader = self.container:resolve("loader")
@@ -350,14 +345,15 @@ function Manager:run_packs(opts)
     end
 
     local function process_stages(by_stage)
-     
         local function process_stage(stage_name, packs)
             if #packs == 0 then
                 utils.safe_notify(string.format("[STAGE] %s: 0 packs, skipping", stage_name), vim.log.levels.DEBUG, {})
                 return
             end
 
-            local ok, err = pcall(function() Loader:run(stage_name, packs, self, opts) end)
+            local ok, err = pcall(function()
+                Loader:run(stage_name, packs, self, opts)
+            end)
             if not ok then
                 utils.safe_notify(
                     string.format("Stage '%s' loading failed: %s", stage_name, tostring(err)),
@@ -467,4 +463,4 @@ function Manager:cleanup()
     self.packs = {}
 end
 
-return Manager:get_singleton()
+return Manager

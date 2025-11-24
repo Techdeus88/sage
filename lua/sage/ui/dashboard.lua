@@ -1,10 +1,6 @@
-local Event = require("sage.core.bus")
-local elem = require("sage.ui.core")
-local icons = require("sage.ui.icons")
-local utils = require("sage.base.utils")
 
-local width_percentage = 0.9
-local height_percentage = 0.9
+local width_percentage = 0.8
+local height_percentage = 0.8
 
 local function center_text(text, width)
     local padding = math.floor((width - #text) / 2)
@@ -20,10 +16,8 @@ local function add_padding_to_line(line, padding)
     return string.format("%s%s%s", pad, line, pad)
 end
 
-local function display_pack_comparison(pack_name)
-    local manager = require("sage.manager")
+local function display_pack_comparison(manager, pack_name, utils)
     local pack = manager.packs[pack_name]
-
     if not pack then
         utils.safe_notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
         return
@@ -301,12 +295,19 @@ function Dashboard:render_header()
             or string.format("  %s  ", tab.label)
 
         local hl = (i == self.active_tab_index) and "SageTabActive" or "SageTab"
-        vim.api.nvim_buf_set_extmark(self.header_buf, Dashboard.ns_ui, 1, padding + col + #text, {})
+        
+        -- Fixed: Properly use nvim_buf_set_extmark with hl_group
+        vim.api.nvim_buf_set_extmark(self.header_buf, Dashboard.ns_ui, 1, padding + col, {
+            end_col = padding + col + #text,
+            hl_group = hl,
+        })
+        
         col = col + #text
     end
 
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.header_buf })
 end
+
 -- ============================================================================
 -- Tab Filtering (FIXED: Added "now" and "later" filters)
 -- ============================================================================
@@ -334,7 +335,7 @@ function Dashboard:refresh_for_tab()
                 or row.status.value == "created"
         end
         if filter == "lazy" then
-            return row.stage.value == "lazy" or row.status.value == "lazy" -- FIXED: Filter by stage, not status
+            return row.stage.value == "lazy" or row.status.value == "lazy"
         end
         if filter == "failed" then
             return row.status.value == "failed"
@@ -352,8 +353,11 @@ function Dashboard:refresh_for_tab()
     end
 
     local line = 0
+    local has_matches = false
+
     for _, row in ipairs(self.rows) do
         if matches(row) then
+            has_matches = true
             self:_ensure_lines(line)
 
             row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
@@ -368,16 +372,19 @@ function Dashboard:refresh_for_tab()
                 self:expand_details(row)
                 line = line + row.details_count
             end
-        else
-            return "No packs found!"
         end
+    end
+
+    -- Show message if no packs match the filter
+    if not has_matches then
+        local no_packs_msg = string.format("No packs found for filter: %s", filter)
+        vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, { "", "  " .. no_packs_msg, "" })
     end
 
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
     self:render_header()
     self:render_footer()
 end
-
 -- ============================================================================
 -- Footer Rendering
 -- ============================================================================
@@ -543,6 +550,9 @@ function Dashboard:add_pack(data)
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
+    local icons = self.icons
+    local elem = self.elements
+    local utils = self.utils
 
     local Pack = data.pack
     local n_spec = Pack.specs.normalize
@@ -615,6 +625,7 @@ function Dashboard:update_line(row)
     if not l then
         return
     end
+    local icons = self.icons
 
     self:_ensure_lines(l)
 
@@ -727,6 +738,7 @@ function Dashboard:update_line_internal(row)
 
     self:_ensure_lines(l)
 
+    local icons = self.icons
     local install = row.install_duration:render() or "0"
     local config = row.config_duration:render() or "0"
     local install_button = string.format("[%s %s]", icons.install or "󰚰", install)
@@ -985,7 +997,10 @@ end
 -- Keymaps
 -- ============================================================================
 -- In dashboard.lua, replace the setup_keymaps function:
+-- In dashboard.lua, setup_keymaps function:
 function Dashboard:setup_keymaps()
+    local Utils = self.utils
+    local Manager = self.manager
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
@@ -996,29 +1011,30 @@ function Dashboard:setup_keymaps()
         vim.keymap.set("n", "a", "<Nop>", { buffer = buf, silent = true })
     end
 
-    -- Tab navigation - set on ALL buffers
+    -- Tab navigation - set on ALL buffers with proper self reference
     for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
         vim.keymap.set("n", "<Tab>", function()
-            Dashboard.active_tab_index = (Dashboard.active_tab_index % #Dashboard.tabs) + 1
-            Dashboard:refresh_for_tab()
+            self.active_tab_index = (self.active_tab_index % #self.tabs) + 1
+            self:refresh_for_tab() -- Use self, not Dashboard
 
             -- Ensure focus is on content window after tab switch
-            if Dashboard.content_win and vim.api.nvim_win_is_valid(Dashboard.content_win) then
-                pcall(vim.api.nvim_set_current_win, Dashboard.content_win)
+            if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
+                pcall(vim.api.nvim_set_current_win, self.content_win)
             end
         end, { buffer = buf, silent = true, desc = "Next tab" })
 
         vim.keymap.set("n", "<S-Tab>", function()
-            Dashboard.active_tab_index = (Dashboard.active_tab_index - 2 + #Dashboard.tabs) % #Dashboard.tabs + 1
-            Dashboard:refresh_for_tab()
+            self.active_tab_index = (self.active_tab_index - 2 + #self.tabs) % #self.tabs + 1
+            self:refresh_for_tab() -- Use self, not Dashboard
+
             -- Ensure focus is on content window after tab switch
-            if Dashboard.content_win and vim.api.nvim_win_is_valid(Dashboard.content_win) then
-                pcall(vim.api.nvim_set_current_win, Dashboard.content_win)
+            if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
+                pcall(vim.api.nvim_set_current_win, self.content_win)
             end
         end, { buffer = buf, silent = true, desc = "Previous tab" })
     end
 
-    -- Content-specific keymaps
+    -- Rest of keymaps...
     vim.keymap.set("n", "r", function()
         vim.notify("Refreshing dashboard...", vim.log.levels.INFO)
         vim.schedule(function()
@@ -1052,7 +1068,7 @@ function Dashboard:setup_keymaps()
             return
         end
 
-        display_pack_comparison(row.name)
+        display_pack_comparison(Manager, row.name, Utils)
     end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
 end
 -- ============================================================================
@@ -1118,11 +1134,13 @@ end
 -- Event Handlers
 -- ============================================================================
 function Dashboard:listen()
+    local Bus = self.bus
+    local Manager = self.manager
     -- Store listener IDs for cleanup
     self.event_listeners = {}
 
     local function register(event_name, handler)
-        local id = Event.on(event_name, function(data)
+        local id = Bus.on(event_name, function(data)
             local ok, err = pcall(handler, data)
             if not ok then
                 vim.notify(
@@ -1190,6 +1208,7 @@ function Dashboard:listen()
         self:update_line(row)
         self:resort_rows()
     end)
+
     -- register("pack:lazy", function(data)
     --     local row = self:find(data.name)
     --     if not row then
@@ -1240,65 +1259,64 @@ function Dashboard:listen()
         self:update_line(row)
     end)
 
-    -- register("pack:task:start", function(data)
-    --     local row = self:find(data.name)
-    --     if not row then
-    --         return
-    --     end
-    --     local manager = require("sage.manager")
-    --     local pack = manager.packs[data.name]
-    --     if pack then
-    --         row.task_progress:update(pack:get_task_progress())
-    --     end
-    --     row.message:update(string.format("Running task: %s", data.task))
-    --     self:update_line(row)
-    -- end)
-    --
-    -- register("pack:task:complete", function(data)
-    --     local row = self:find(data.name)
-    --     if not row then
-    --         return
-    --     end
-    --     local manager = require("sage.manager")
-    --     local pack = manager.packs[data.name]
-    --     if pack then
-    --         row.task_progress:update(pack:get_task_progress())
-    --     end
-    --     if data.status == "success" then
-    --         row.message:update(string.format("✓ %s", data.task))
-    --     elseif data.status == "failed" then
-    --         row.message:update(string.format("✗ %s: %s", data.task, data.error or "failed"))
-    --     end
-    --     self:update_line(row)
-    -- end)
-    --
-    -- register("pack:lifecycle:complete", function(data)
-    --     local row = self:find(data.name)
-    --     if not row then
-    --         return
-    --     end
-    --     row.message:update("All tasks complete")
-    --     self:update_line(row)
-    -- end)
+    register("pack:task:start", function(data)
+        local row = self:find(data.name)
+        if not row then
+            return
+        end
+        local pack = Manager.packs[data.name]
+        if pack then
+            row.task_progress:update(pack:get_task_progress())
+        end
+        row.message:update(string.format("Running task: %s", data.task))
+        self:update_line(row)
+    end)
+
+    register("pack:task:complete", function(data)
+        local row = self:find(data.name)
+        if not row then
+            return
+        end
+        local pack = Manager.packs[data.name]
+        if pack then
+            row.task_progress:update(pack:get_task_progress())
+        end
+        if data.status == "success" then
+            row.message:update(string.format("✓ %s", data.task))
+        elseif data.status == "failed" then
+            row.message:update(string.format("✗ %s: %s", data.task, data.error or "failed"))
+        end
+        self:update_line(row)
+    end)
+
+    register("pack:lifecycle:complete", function(data)
+        local row = self:find(data.name)
+        if not row then
+            return
+        end
+        row.message:update("All tasks complete")
+        self:update_line(row)
+    end)
 end
 
 function Dashboard:unlisten()
     if not self.event_listeners then
         return
     end
+    local Bus = self.bus
 
     for _, listener in ipairs(self.event_listeners) do
         -- Try multiple patterns for event cleanup based on common event bus APIs
         local ok = pcall(function()
-            if type(Event.off) == "function" then
+            if type(Bus.off) == "function" then
                 -- Pattern 1: Event.off(event_name, id)
-                Event.off(listener.event, listener.id)
-            elseif type(Event.remove) == "function" then
+                Bus.off(listener.event, listener.id)
+            elseif type(Bus.remove) == "function" then
                 -- Pattern 2: Event.remove(event_name, id)
                 Event.remove(listener.event, listener.id)
-            elseif type(Event.unsubscribe) == "function" then
+            elseif type(Bus.unsubscribe) == "function" then
                 -- Pattern 3: Event.unsubscribe(id)
-                Event.unsubscribe(listener.id)
+                Bus.unsubscribe(listener.id)
             end
         end)
 
@@ -1381,7 +1399,7 @@ end
 -- ============================================================================
 -- Initialization
 -- ============================================================================
-function Dashboard:init(opts)
+function Dashboard:init(container, elements, icons, opts)
     opts = opts or {}
     -- Allow disabling window lock
     self.config = {
@@ -1390,6 +1408,12 @@ function Dashboard:init(opts)
         debounce_ms = opts.debounce_ms or 50,
     }
 
+    self.container = container
+    self.elements = elements
+    self.icons = icons
+    self.manager = self.container:resolve("manager")
+    self.utils = self.container:resolve("utils")
+    self.bus = self.container:resolve("bus")
     self:setup_debounced_footer()
 
     -- ========================================================================

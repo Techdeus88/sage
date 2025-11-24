@@ -1,9 +1,12 @@
 local Api = {}
 Api.__index = Api
-Api._singleton = nil
 
 function Api.new(container)
     local self = setmetatable({}, Api)
+
+    self.container = container
+    self.manager = self.container:resolve("manager")
+    self.utils = self.container:resolve("utils")
 
     self.stats = {}
     self.stats.times = {}
@@ -13,15 +16,9 @@ function Api.new(container)
     return self
 end
 
-function Api:get_singleton()
-    if self._singleton == nil then
-        self._singleton = Api.new()
-    end
-    return self._singleton
-end
-
 function Api:get_stats()
-    local Packs = require("sage.manager").packs
+    local Packs = self.manager.packs
+
     self.stats["counted"] = 0
     self.stats["loaded"] = 0
     self.stats["failed"] = 0
@@ -39,7 +36,7 @@ function Api:get_stats()
 end
 
 function Api:get_status()
-    local Packs = require("sage.manager").Packs
+    local Packs = self.manager.packs
     local status = {}
     for name, pack in pairs(Packs) do
         status[name] = {
@@ -55,7 +52,7 @@ function Api:get_status()
 end
 
 function Api:get_config()
-    local Packs = require("sage.manager").Packs
+    local Packs = self.manager.packs
     local config = {}
     for name, pack in pairs(Packs) do
         config[name] = {
@@ -79,23 +76,23 @@ function Api:track_event(event, value)
     if self.stats.times.events then
         self.stats.times.events[event] = value
     end
-    return true
+    return true, string.format("Event %s tracked with value %s", event, value)
 end
 
 function Api:get_event(event)
-    if self.stats.times.events[event] ~= nil then
+    if self['stats'] and self['stats'].times.events[event] ~= nil then
         return self.stats.times.events[event]
     end
-    return nil
 end
 
-function Api.get_stage_lists()
-    local Manager = require("sage.manager")
+function Api:get_stage_lists()
+    local Manager = self.manager
+    local utils = self.utils
     local Packs = Manager.packs
     local all_packs = vim.tbl_values(Packs)
-    local sorted = require("sage.base.utils").sort_packs(all_packs)
+    local sorted = utils.sort_packs(all_packs)
 
     return sorted
 end
 
-return Api:get_singleton()
+return Api

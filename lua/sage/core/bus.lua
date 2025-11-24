@@ -1,33 +1,33 @@
 -- ============================================================================
--- Event Dispatcher with deduplication
+-- Bus Dispatcher with deduplication
 -- ============================================================================
-local Event = {}
-Event.__index = Event
+local Bus = {}
+Bus.__index = Bus
 
-Event.listeners = {}
-Event._next_id = 0
-Event.queue = {}
-Event.queued_items = {} -- Track what's already queued
+Bus.listeners = {}
+Bus._next_id = 0
+Bus.queue = {}
+Bus.queued_items = {} -- Track what's already queued
 
 --- Register a listener for an event
 ---@param event string
 ---@param callback function
 ---@return integer listener_id
-function Event.on(event, callback)
-    if not Event.listeners[event] then
-        Event.listeners[event] = {}
+function Bus.on(event, callback)
+    if not Bus.listeners[event] then
+        Bus.listeners[event] = {}
     end
-    Event._next_id = Event._next_id + 1
-    local id = Event._next_id
-    Event.listeners[event][id] = callback
+    Bus._next_id = Bus._next_id + 1
+    local id = Bus._next_id
+    Bus.listeners[event][id] = callback
     return id
 end
 
 --- Emit an event
 ---@param event string
 ---@param data any
-function Event.emit(event, data)
-    local listeners = Event.listeners[event]
+function Bus.emit(event, data)
+    local listeners = Bus.listeners[event]
     if not listeners then
         return
     end
@@ -35,7 +35,7 @@ function Event.emit(event, data)
         local ok, err = pcall(callback, data)
         if not ok then
             vim.schedule(function()
-                vim.notify(string.format("Event '%s' listener %d failed: %s", event, id, err), vim.log.levels.ERROR)
+                vim.notify(string.format("Bus '%s' listener %d failed: %s", event, id, err), vim.log.levels.ERROR)
             end)
         end
     end
@@ -43,13 +43,13 @@ end
 
 --- Remove a listener by ID
 ---@param listener_id integer
-function Event.off(listener_id)
-    for event, listeners in pairs(Event.listeners) do
+function Bus.off(listener_id)
+    for event, listeners in pairs(Bus.listeners) do
         if listeners[listener_id] then
             listeners[listener_id] = nil
             -- Clean up empty event tables
             if vim.tbl_isempty(listeners) then
-                Event.listeners[event] = nil
+                Bus.listeners[event] = nil
             end
             return true
         end
@@ -59,32 +59,32 @@ end
 
 --- Remove all listeners for an event (optional helper)
 ---@param event string
-function Event.clear(event)
-    Event.listeners[event] = nil
+function Bus.clear(event)
+    Bus.listeners[event] = nil
 end
 
-function Event.add_to_queue(name, fn)
+function Bus.add_to_queue(name, fn)
     -- Prevent duplicate queue entries
-    if Event.queued_items[name] then
+    if Bus.queued_items[name] then
         return -- Already queued
     end
 
-    Event.queued_items[name] = true
-    table.insert(Event.queue, { name = name, cb = fn })
+    Bus.queued_items[name] = true
+    table.insert(Bus.queue, { name = name, cb = fn })
 end
 
-function Event:run_queue()
-    while #Event.queue > 0 do
-        local item = table.remove(Event.queue, 1)
+function Bus:run_queue()
+    while #Bus.queue > 0 do
+        local item = table.remove(Bus.queue, 1)
         pcall(item.cb)
         -- Remove from tracking after execution
-        Event.queued_items[item.name] = nil
+        Bus.queued_items[item.name] = nil
     end
 end
 
-function Event:clear_queue()
-    Event.queue = {}
-    Event.queued_items = {}
+function Bus:clear_queue()
+    Bus.queue = {}
+    Bus.queued_items = {}
 end
 
-return Event
+return Bus
