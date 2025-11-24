@@ -622,10 +622,11 @@ function Dashboard:update_line(row)
     local message_text = row.message:render()
 
     local lazy_text = ""
-    local lazy_trigger_type = nil
+    local info = ""
+    local lazy_trigger_type = ""
     if row.stage.value == "lazy" and row.lazy then
         lazy_text = row.lazy:render()
-        local info = row.lazy:get_info()
+        info = row.lazy:get_info()
         lazy_trigger_type = info.type
     end
 
