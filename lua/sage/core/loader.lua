@@ -92,7 +92,7 @@ function BaseLoader.new(container)
     self.manager = container:resolve("manager")
     self.bus = container:resolve("bus")
     self.logger = container:resolve("logger")
-    
+
     self.loading_queue = {}
     self.timers = {} -- Track all timers for cleanup
     self.autocmds = {} -- Track autocmds for cleanup
@@ -441,7 +441,6 @@ end
 -- Setup dependency-based loading
 function LazyLoader:setup_dependency_loading(pack, manager, dep_chain)
     local bus = self.bus
-    print(vim.inspect(bus))
     local name = pack.specs.normalize.name
     local loaded_deps = {}
     local has_attempted = false
@@ -774,9 +773,9 @@ function Loader.new(container)
         now = EagerLoader.new(container),
         later = LaterLoader.new(container),
         lazy = LazyLoader.new(container),
-        disabled = DisabledLoader.new(container)
+        disabled = DisabledLoader.new(container),
     }
-    
+
     return self
 end
 
