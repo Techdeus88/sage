@@ -3,99 +3,19 @@ local width_percentage = 0.8
 local height_percentage = 0.8
 
 local function center_text(text, width)
-    local padding = math.floor((width - #text) / 2)
+    local text_width = vim.fn.strdisplaywidth(text)  -- Use display width for proper unicode handling
+    local padding = math.floor((width - text_width) / 2)
     if padding < 0 then
         padding = 0
     end
-    return string.rep(" ", padding) .. text
+    local pad = string.rep(" ", padding)
+    return string.format("%s%s%s", pad, text, pad)
 end
 
 local function add_padding_to_line(line, padding)
     padding = padding or 1
     local pad = string.rep(" ", padding)
     return string.format("%s%s%s", pad, line, pad)
-end
-
-local function display_pack_comparison(manager, pack_name, utils)
-    local pack = manager.packs[pack_name]
-    if not pack then
-        utils.safe_notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
-        return
-    end
-
-    local n_pack = pack:get_native()
-
-    if not n_pack then
-        utils.safe_notify(string.format("[%s] Failed to get native pack", pack_name), vim.log.levels.ERROR)
-        return
-    end
-
-    local width = vim.o.columns
-    local height = vim.o.lines
-    local win_height = math.floor(height * 0.80)
-    local win_width = math.floor(width * 0.60)
-    local row = math.floor((height - win_height) / 2)
-    local col = math.floor((width - win_width) / 2)
-
-    local lines = {}
-
-    table.insert(
-        lines,
-        center_text(
-            "╔═══════════════════════════════════════╗",
-            win_width
-        )
-    )
-    table.insert(
-        lines,
-        center_text(
-            string.format("║  Pack Comparison: %s", pack_name .. string.rep(" ", 35 - #pack_name) .. "║"),
-            win_width
-        )
-    )
-    table.insert(
-        lines,
-        center_text(
-            "╚═══════════════════════════════════════╝",
-            win_width
-        )
-    )
-    table.insert(lines, "")
-    table.insert(lines, "📦 SAGE_PACK (sage.packs[name]) 📦 N_PACK (vim.pack.get)")
-    table.insert(lines, string.rep("─", 80))
-    table.insert(lines, "")
-    table.insert(lines, "┌" .. string.rep("─", 38) .. "┐")
-    table.insert(lines, "Press 'q' to close this buffer")
-
-    local buf = vim.api.nvim_create_buf(false, true)
-    local win = vim.api.nvim_open_win(buf, false, {
-        relative = "editor",
-        width = win_width,
-        height = win_height,
-        row = row,
-        col = col,
-        style = "minimal",
-        border = { "╭", "─", "╮", "│", "╰", "─", "╯", "│" },
-        zindex = 100,
-    })
-
-    local padded_lines = {}
-    for _, line in ipairs(lines) do
-        table.insert(padded_lines, " " .. line .. " ")
-    end
-
-    vim.api.nvim_api_set_option_value("modifiable", true, { buf = buf })
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
-
-    vim.api.nvim_api_set_option_value("modifiable", false, { buf = buf })
-    vim.api.nvim_api_set_option_value("filetype", "lua", { buf = buf })
-    vim.api.nvim_api_set_option_value("buftype", "nofile", { buf = buf })
-
-    pcall(vim.api.nvim_set_current_win, win)
-
-    vim.keymap.set("n", "q", function()
-        vim.api.nvim_buf_delete(buf, { force = true })
-    end, { buffer = buf, noremap = true, silent = true })
 end
 
 -- ============================================================================
@@ -259,6 +179,147 @@ function Dashboard:setup_close_keymaps()
     end
 end
 
+local function format_table_value(key, val, val_type, indent, max_length)
+    indent = string.rep(" ", indent or 1)
+
+    local tbl_key = tostring(key):upper()
+    local prefix = indent .. tbl_key .. " -> "
+
+    if val_type == "string" then
+        return string.format("%s %s", prefix, val)
+    end
+    if val_type == "number" then
+        return string.format("%s %s", prefix, string.format("%.0f", val))
+    end
+    if val_type == "boolean" then
+        if val then
+            return prefix .. "true"
+        else
+            return prefix .. "false"
+        end
+    end
+    if val_type == "function" then
+        return prefix .. "<function>"
+    end
+    if val_type == "userdata" then
+            return prefix .. "<userdata>"
+    end
+
+    return prefix .. "Unknown value"
+end
+
+local function format_table(lines, tbl, indent, max_length)
+    lines = lines or {}
+    max_length = max_length or 10
+    indent = indent or 0
+
+    if not tbl or indent > max_length then
+        return lines
+    end
+
+    for k, v in pairs(tbl) do
+        local val_type = type(v)
+        if val_type == "table" then
+            local tbl_lines = format_table({}, v, indent + 1, max_length)
+            vim.list_extend(lines, tbl_lines)
+        else
+            local tbl_value = format_table_value(k, v, val_type, indent, max_length)
+            table.insert(lines, tbl_value)
+        end
+    end
+    return lines
+end
+
+function Dashboard:display_pack_comparison(pack_name)
+    local manager = self.container:resolve("manager")
+    local utils = self.container:resolve("utils")
+    local pack = manager.packs[pack_name]
+
+    if not pack then
+        utils.safe_notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
+        return
+    end
+
+    local n_pack = pack:get_native()
+
+    if not n_pack then
+        utils.safe_notify(string.format("[%s] Failed to get native pack", pack_name), vim.log.levels.ERROR)
+        return
+    end
+
+    local width = vim.o.columns
+    local height = vim.o.lines
+    local win_height = math.floor(height * 0.80)
+    local win_width = math.floor(width * 0.60)
+    local row = math.floor((height - win_height) / 2)
+    local col = math.floor((width - win_width) / 2)
+
+    -- Calculate inner width (accounting for borders and padding)
+    local inner_width = win_width - 4  -- 2 for padding, 2 for borders
+
+    local lines = {}
+
+    -- Header box
+    local header_text = string.format("Pack: %s", pack_name)
+    local header_padding = math.floor((inner_width - #header_text - 2) / 2)  -- -2 for border chars
+
+    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗")
+    table.insert(lines, "║ " .. string.rep(" ", header_padding) .. header_text .. string.rep(" ", inner_width - header_padding - #header_text - 3) .. "║")
+    table.insert(lines, "╚" .. string.rep("═", inner_width - 2) .. "╝")
+    table.insert(lines, "")
+
+    -- Content
+    local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)" }
+    content_lines = vim.list_extend(content_lines, format_table(lines, pack, 0, 8))
+    for _, content_text in ipairs(content_lines) do
+        local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
+        table.insert(lines, string.rep(" ", content_padding) .. content_text)
+    end
+
+    table.insert(lines, string.rep("─", inner_width))
+    table.insert(lines, "")
+
+    -- Close instruction box
+    local close_text = "Press 'q' to close this buffer"
+    local close_padding = math.floor((inner_width - #close_text) / 2)
+    table.insert(lines, "┌" .. string.rep("─", inner_width - 2) .. "┐")
+    table.insert(lines, "│" .. string.rep(" ", close_padding) .. close_text .. string.rep(" ", inner_width - close_padding - #close_text - 2) .. "│")
+    table.insert(lines, "└" .. string.rep("─", inner_width - 2) .. "┘")
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    local win = vim.api.nvim_open_win(buf, true, {  -- Changed to true to focus the window
+        relative = "editor",
+        width = win_width,
+        height = win_height,
+        row = row,
+        col = col,
+        style = "minimal",
+        border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
+        zindex = 100,
+    })
+
+    -- Add padding to each line
+    local padded_lines = {}
+    for _, line in ipairs(lines) do
+        table.insert(padded_lines, "  " .. line)  -- Add consistent left padding
+    end
+
+    vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+    vim.api.nvim_set_option_value("filetype", "sage", { buf = buf })
+    vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
+    vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
+
+    -- Add close keymaps
+    vim.keymap.set("n", "q", function()
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end, { buffer = buf, noremap = true, silent = true, desc = "Close comparison window" })
+
+    vim.keymap.set("n", "<Esc>", function()
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end, { buffer = buf, noremap = true, silent = true, desc = "Close comparison window" })
+end
 -- ============================================================================
 -- Header Rendering
 -- ============================================================================
@@ -295,13 +356,13 @@ function Dashboard:render_header()
             or string.format("  %s  ", tab.label)
 
         local hl = (i == self.active_tab_index) and "SageTabActive" or "SageTab"
-        
+
         -- Fixed: Properly use nvim_buf_set_extmark with hl_group
         vim.api.nvim_buf_set_extmark(self.header_buf, Dashboard.ns_ui, 1, padding + col, {
             end_col = padding + col + #text,
             hl_group = hl,
         })
-        
+
         col = col + #text
     end
 
@@ -315,6 +376,7 @@ function Dashboard:refresh_for_tab()
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
+    local Manager = self.manager
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
     vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
@@ -329,13 +391,15 @@ function Dashboard:refresh_for_tab()
             return row.status.value == "loaded"
         end
         if filter == "not_loaded" then
-            return row.status.value == "not_loaded"
+            local pack = self.manager.packs[row.name]
+
+            return pack.loaded == false
                 or row.status.value == "installing"
                 or row.status.value == "installed"
                 or row.status.value == "created"
         end
         if filter == "lazy" then
-            return row.stage.value == "lazy" or row.status.value == "lazy"
+            return row.stage.value == "lazy"
         end
         if filter == "failed" then
             return row.status.value == "failed"
@@ -580,8 +644,8 @@ function Dashboard:add_pack(data)
 
     local row = {
         name = name,
-        status = elem.StatusElement.new("status", status, "icon"),
         status_two = elem.StatusElement.new("status", status, "icon_text"),
+        status = elem.StatusElement.new("status", status, "icon"),
         stage = elem.StageElement.new("stage", stage, "icon", {
             stage = { now = icons.now, later = icons.later, lazy = icons.lazy, disabled = icons.disabled },
         }),
@@ -666,7 +730,7 @@ function Dashboard:update_line(row)
     end
 
     local line_text = string.format(
-        "%s %-25s %s %s %s %s %s %s %s",
+        "%s %s %-5s %s %s %s %s %s %s",
         row.status:render(),
         row.name,
         row.stage:render(),
@@ -762,7 +826,7 @@ function Dashboard:update_line_internal(row)
     end
 
     local line_text = string.format(
-        "%s %-25s %s %s %s %s %s %s %s",
+        "%s %s %-5s %s %s %s %s %s %s",
         row.status:render(),
         row.name,
         row.stage:render(),
@@ -1034,7 +1098,18 @@ function Dashboard:setup_keymaps()
         end, { buffer = buf, silent = true, desc = "Previous tab" })
     end
 
-    -- Rest of keymaps...
+    vim.keymap.set("n", "<A-CR>", function()
+            local cursor = vim.api.nvim_win_get_cursor(0)
+            local row = self:get_row_at_line(cursor[1])
+
+            if not row then
+                vim.notify("No pack selected", vim.log.levels.WARN)
+                return
+            end
+
+            self:display_pack_comparison(row.name)
+    end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
+
     vim.keymap.set("n", "r", function()
         vim.notify("Refreshing dashboard...", vim.log.levels.INFO)
         vim.schedule(function()
@@ -1058,18 +1133,6 @@ function Dashboard:setup_keymaps()
             self:expand_details(row)
         end
     end, { buffer = self.content_buf, desc = "Toggle pack details" })
-
-    vim.keymap.set("n", "<A-CR>", function()
-        local cursor = vim.api.nvim_win_get_cursor(0)
-        local row = self:get_row_at_line(cursor[1])
-
-        if not row then
-            vim.notify("No pack selected", vim.log.levels.WARN)
-            return
-        end
-
-        display_pack_comparison(Manager, row.name, Utils)
-    end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
 end
 -- ============================================================================
 -- Window Management

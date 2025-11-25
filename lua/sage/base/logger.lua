@@ -22,9 +22,9 @@ function Logger.new(opts)
     return self
 end
 
-function Logger:get_instance()
+function Logger:get_instance(opts)
     if not Logger._singleton then
-        Logger._singleton = Logger.new()
+        Logger._singleton = Logger.new(opts)
     end
     return Logger._singleton
 end
@@ -120,6 +120,15 @@ function Logger:open_log_window()
         self.log_win = vim.api.nvim_get_current_win()
         vim.api.nvim_win_set_buf(self.log_win, self.log_buf)
         vim.api.nvim_win_set_height(self.log_win, 20)
+
+        -- Add close keymap to the log buffer
+        vim.keymap.set("n", "q", function()
+            self:close_log_window()
+        end, { buffer = self.log_buf, silent = true, desc = "Close log window" })
+
+        vim.keymap.set("n", "<Esc>", function()
+            self:close_log_window()
+        end, { buffer = self.log_buf, silent = true, desc = "Close log window" })
     end
 
     self:render_logs()
@@ -185,7 +194,7 @@ function Logger:echo_message(level, source, msg)
 end
 
 function Logger:get_logs(limit)
-    limit = limit or 50
+    limit = limit or 1000
     local start_idx = math.max(1, #self.logs - limit + 1)
     local recent = {}
     for i = start_idx, #self.logs do

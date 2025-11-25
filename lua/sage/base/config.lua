@@ -9,4 +9,6 @@ return {
     idle_time_ms = 1000, -- idle time        -> How long the user is idle before loading the later staged packs
     lock_windows = true,
     auto_focus = true,
+    max_log = 1000,
+    level = "DEBUG"
 }

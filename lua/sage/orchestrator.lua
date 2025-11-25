@@ -47,7 +47,9 @@ function Orchestrator:init_command()
     if not self.bus or not self.api or not self.loader or not self.dashboard then
         error("Bus, API, Loader, and Dashboard must be initialized before commands")
     end
-    require("sage.base.command").init(self.container)
+    local cmd = require("sage.base.command")
+    cmd.init(self.container)
+
     self:log("Orchestrator", "Commands initialized")
 end
 
@@ -72,7 +74,7 @@ function Orchestrator:init_logger()
         error("Bus must be initialized before logger")
     end
     local Logger = require("sage.base.logger")
-    self.logger = Logger:get_instance()
+    self.logger = Logger:get_instance(self.opts)
     self.logger:set_bus(self.bus)
     self.container:register("logger", function()
         return self.logger
@@ -137,22 +139,22 @@ function Orchestrator:init_ui()
     local SageDashboard = require("sage.ui.dashboard")
     local SageElements = require("sage.ui.core")
     local SageIcons = require("sage.ui.icons")
-    
+
     -- Dashboard is the instance itself, not a class
     self.dashboard = SageDashboard
 
     self.container:register("dashboard", function()
         return self.dashboard
     end, { lazy = false })
-    
+
     self:log("Orchestrator", "UI initialized")
 
     -- Initialize the dashboard with options
     self.dashboard:init(self.container, SageElements, SageIcons, {
         lock_windows = self.opts.lock_windows,
-        auto_focus = self.opts.auto_focus, 
+        auto_focus = self.opts.auto_focus,
     })
-    
+
     self:log("Orchestrator", "Dashboard initialized with options")
 end
 
