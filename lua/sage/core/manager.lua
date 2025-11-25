@@ -29,10 +29,10 @@ end
 -- ============================================================================
 function Manager:create_pack(spec)
     local pack = self.container:resolve("pack")
-    local Task_system = self.container:resolve("task_system")
+    local TaskSystem = self.container:resolve("task_system")
     
     local Pack = pack.new(spec)
-    Task_system.wire_pack(Pack)
+    TaskSystem.wire_pack(Pack)
     
     return Pack
 end
@@ -349,9 +349,17 @@ function Manager:run_packs()
 
     -- Show dashboard if needed
     if self.opts.dashboard == "smart" and should_show_dashboard(all_specs, self.opts) then
-            vim.schedule(function() Dashboard:open() end)
-    elseif opts.dashboard == "simple" then
-            vim.schedule(function() Dashboard:open() end)
+            vim.schedule(function()
+                vim.defer_fn(function() 
+                        Dashboard:open() 
+                end, 500)
+            end)
+    elseif self.opts.dashboard == "simple" then
+            vim.schedule(function()
+                vim.defer_fn(function() 
+                        Dashboard:open() 
+                end, 500)
+            end)
     end
 
     local function process_stages(by_stage)
@@ -392,7 +400,7 @@ function Manager:run_packs()
     end
 
     local function process_packs()
-        local sorted = utils.sort_packs(all_packs)
+        local sorted = Utils.sort_packs(all_packs)
         local by_stage = {
             now = sorted["now"] or {},
             later = sorted["later"] or {},
@@ -432,7 +440,6 @@ function Manager:run_packs()
 
     for i, spec in ipairs(all_specs) do
         local Pack = self:create_pack(spec)
-        
         local name = Pack.specs.normalize.name
         Pack:set_status("created")
         
@@ -457,7 +464,7 @@ function Manager:run_packs()
                 created_count = created_count + 1
                 if created_count == total_to_create then
                     Bus.emit("pack:all_created", { num_packs = total_to_create })
-                    process_packs()
+                    process_packs(Loader)
                 end
             end, delay * pack_index)
         end)

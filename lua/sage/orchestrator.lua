@@ -88,7 +88,7 @@ function Orchestrator:init_manager()
         error("Logger must be initialized before manager")
     end
     local SageManager = require("sage.core.manager")
-    self.manager = SageManager.new(self.container)
+    self.manager = SageManager.new(self.container, self.opts)
     self.container:register("manager", function()
         return self.manager
     end, { lazy = false })
@@ -97,6 +97,12 @@ end
 
 function Orchestrator:init_pack()
     local SagePack = require("sage.core.pack")
+    -- Initialize Pack dependencies once
+    SagePack.init({
+        bus = self.bus,
+        utils = self.container:resolve("utils"),
+    })
+    
     self.container:register("pack", function()
         return SagePack
     end)
@@ -174,15 +180,40 @@ function Orchestrator:init_task()
     local TaskLifecycle = require("sage.core.tasks.lifecycle")
     local TaskSystem = require("sage.core.tasks.system")
 
-    self.task_lifecycle = TaskLifecycle.new(self.container)
-    self.task_builder = TaskBuilder
-    self.task_system = TaskSystem
-    self.task = Task
-    self.container:register("task_lifecycle", function()
-        return self.task_lifecycle
-    end, { lazy = false })
+    -- Initialize all task modules with dependencies
+    Task.init({
+        bus = self.bus,
+        logger = self.logger,
+    })
+    
+    TaskLifecycle.init({
+        bus = self.bus,
+        logger = self.logger,
+    })
+    
+    TaskSystem.init({
+        bus = self.bus,
+        logger = self.logger,
+    })
 
-    self:log("Orchestrator", "Task lifecycle, system, builder w/ tasks initialized")
+    -- Register in container
+    self.container:register("task", function()
+        return Task
+    end)
+    
+    self.container:register("task_builder", function()
+        return TaskBuilder
+    end)
+    
+    self.container:register("task_lifecycle", function()
+        return TaskLifecycle
+    end)
+    
+    self.container:register("task_system", function()
+        return TaskSystem
+    end)
+
+    self:log("Orchestrator", "Task system initialized with dependencies")
 end
 
 function Orchestrator:execute_initialization()

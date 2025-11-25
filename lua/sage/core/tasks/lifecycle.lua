@@ -1,16 +1,24 @@
 -- ============================================================================
--- lifecycle.lua (Fixed)
+-- lifecycle.lua
 -- ============================================================================
-local Event = require("sage.core.bus")
 
 local Lifecycle = {}
 Lifecycle.__index = Lifecycle
+
+-- Module-level dependencies
+local bus = nil
+local logger = nil
+
+function Lifecycle.init(deps)
+    bus = deps.bus
+    logger = deps.logger
+end
 
 function Lifecycle.new(pack)
     local self = setmetatable({}, Lifecycle)
     self.pack = pack
     self.tasks = {}
-    self.task_order = {} -- execution order
+    self.task_order = {}
     self.current_task_index = 0
     self.completed = false
     return self
@@ -39,10 +47,8 @@ function Lifecycle:get_next_runnable_task()
                 self.current_task_index = i
                 return task
             elseif task.required then
-                -- Required task can't run - we're blocked
                 return nil, reason
             else
-                -- Optional task can't run - skip it
                 task:skip(reason)
             end
         end
@@ -55,7 +61,6 @@ function Lifecycle:run_next()
     local task, reason = self:get_next_runnable_task()
 
     if not task then
-        -- Check if all required tasks are complete
         local all_required_done = true
         for _, task_id in ipairs(self.task_order) do
             local t = self.tasks[task_id]
@@ -67,13 +72,18 @@ function Lifecycle:run_next()
 
         if all_required_done and not self.completed then
             self.completed = true
-            -- FIXED: Added nil check for pack
             if self.pack and self.pack.specs and self.pack.specs.normalize then
                 vim.schedule(function()
-                    Event.emit("pack:lifecycle:complete", {
-                        name = self.pack.specs.normalize.name,
-                        pack = self.pack,
-                    })
+                    if bus then
+                        bus.emit("pack:lifecycle:complete", {
+                            name = self.pack.specs.normalize.name,
+                            pack = self.pack,
+                        })
+                    end
+                    if logger then
+                        logger:info("Lifecycle", 
+                            string.format("Lifecycle complete for pack '%s'", self.pack.specs.normalize.name))
+                    end
                 end)
             end
         end
@@ -81,39 +91,39 @@ function Lifecycle:run_next()
         return false, reason
     end
 
-    -- FIXED: Added nil check for pack before emitting
+    -- Emit task start event
     if self.pack and self.pack.specs and self.pack.specs.normalize then
-        -- Emit task start event (scheduled)
         vim.schedule(function()
-            Event.emit("pack:task:start", {
-                name = self.pack.specs.normalize.name,
-                task = task.name,
-                task_id = task.id,
-                pack = self.pack,
-            })
+            if bus then
+                bus.emit("pack:task:start", {
+                    name = self.pack.specs.normalize.name,
+                    task = task.name,
+                    task_id = task.id,
+                    pack = self.pack,
+                })
+            end
         end)
     end
 
-    -- Run the task (synchronous for now)
     local ok, result = task:run(self.pack)
 
-    -- FIXED: Added nil check for pack before emitting
+    -- Emit task complete event
     if self.pack and self.pack.specs and self.pack.specs.normalize then
-        -- Emit task complete event (scheduled)
         vim.schedule(function()
-            Event.emit("pack:task:complete", {
-                name = self.pack.specs.normalize.name,
-                task = task.name,
-                task_id = task.id,
-                status = task.status,
-                duration = task.duration,
-                error = task.error,
-                pack = self.pack,
-            })
+            if bus then
+                bus.emit("pack:task:complete", {
+                    name = self.pack.specs.normalize.name,
+                    task = task.name,
+                    task_id = task.id,
+                    status = task.status,
+                    duration = task.duration,
+                    error = task.error,
+                    pack = self.pack,
+                })
+            end
         end)
     end
 
-    -- Continue with next task if this one succeeded
     if ok then
         return self:run_next()
     end

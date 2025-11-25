@@ -35,10 +35,9 @@ function M.setup(opts)
     -- Extract services
     local container = orchestrator.container
     local manager = orchestrator.manager
-
     -- Run packs safely
     pcall(function()
-        manager:run_packs(opts)
+        manager:run_packs()
     end)
 end
 

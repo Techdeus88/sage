@@ -1,7 +1,14 @@
-local utils = require("sage.base.utils")
 
 local Pack = {}
 Pack.__index = Pack
+
+local bus = nil
+local utils = nil
+
+function Pack.init(deps)
+    bus = deps.bus
+    utils = deps.utils
+end
 
 function Pack.new(spec)
     local self = setmetatable({}, Pack)
@@ -159,11 +166,14 @@ function Pack:set_status(status)
     local curr_status = self.status
     if curr_status ~= status then
         self.status = status
-        require("sage.core.bus").emit("pack:status:change", {
-            name = pack_name,
-            prev_status = curr_status,
-            new_status = status,
-        })
+        if bus then
+            
+            bus.emit("pack:status:change", {
+                name = pack_name,
+                prev_status = curr_status,
+                new_status = status,
+            })
+        end
         return true, self.status
     end
     return false, self.status
