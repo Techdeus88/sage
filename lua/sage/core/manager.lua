@@ -3,17 +3,24 @@
 local Manager = {}
 Manager.__index = Manager
 
-function Manager.new(container)
+function Manager.new(container, opts)
     local self = setmetatable({}, Manager)
+    
     self.container = container
-    self.utils = container:resolve("utils")
+    self.opts = opts
+    
+    self.bus = self.container:resolve("bus")
+    self.utils = self.container:resolve("utils")
+    
     self.packs = {}
     self.install_times = {}
+    
     self.delay_time = 100
     -- Track installation state
     self.installation_complete = false
     self.installation_success = false
     self.installation_result = nil
+    
     return self
 end
 
@@ -21,10 +28,12 @@ end
 -- Pack Creation
 -- ============================================================================
 function Manager:create_pack(spec)
-    local pack = require("sage.core.pack")
+    local pack = self.container:resolve("pack")
+    local Task_system = self.container:resolve("task_system")
+    
     local Pack = pack.new(spec)
-    local TaskSystem = require("sage.core.tasks.system")
-    TaskSystem.wire_pack(Pack)
+    Task_system.wire_pack(Pack)
+    
     return Pack
 end
 
@@ -44,8 +53,9 @@ end
 -- Batch Installation with Callback-Based Tracking (FIXED)
 -- ============================================================================
 function Manager:install_activate_batch(pack_groups, on_complete)
-    local utils = self.utils
-    local Event = require("sage.core.bus")
+    local Utils = self.utils
+    local Event = self.bus
+    local add_opts = self.opts.add_opts
 
     -- Flatten all packs from all stages
     local all_packs = {}
@@ -85,7 +95,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
             Event.emit("pack:install:start", {
                 name = name,
                 status = "installing",
-                message = "Installation starting",
+                message = "Installating",
                 pack = pack,
             })
         end)
@@ -96,11 +106,11 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     -- Setup timeout timer in case some packs never call load()
     completion_timer = vim.loop.new_timer()
     completion_timer:start(
-        30000,
+        60000,
         0,
         vim.schedule_wrap(function()
             if install_finish_count < total_to_install then
-                utils.safe_notify(
+                Utils.safe_notify(
                     string.format("Installation timeout: %d/%d packs completed", install_finish_count, total_to_install),
                     vim.log.levels.WARN
                 )
@@ -128,13 +138,13 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
     -- Single batch installation with callback tracking
     local ok, err = pcall(vim.pack.add, n_specs, {
-        confirm = false,
+        confirm = add_opts.confirm,
         load = function(data)
             local pack_name = data.spec.name
             local pack = self.packs[pack_name]
 
             if not pack then
-                utils.safe_notify(string.format("Pack '%s' not found in manager", pack_name), vim.log.levels.WARN)
+                Utils.safe_notify(string.format("Pack '%s' not found in manager", pack_name), vim.log.levels.WARN)
                 table.insert(failed_packs, pack_name)
                 install_finish_count = install_finish_count + 1
 
@@ -251,12 +261,17 @@ end
 -- ============================================================================
 -- Dashboard Detection
 -- ============================================================================
-local function should_show_dashboard(all_specs)
-    for _, spec in ipairs(all_specs) do
-        if not spec.installed or spec.status == "failed" or spec.status == "installing" then
-            return true
+local function should_show_dashboard(all_specs, opts)
+    if opts.dashboard == "smart" then
+        for _, spec in ipairs(all_specs) do
+            if not spec.installed or spec.status == "failed" or spec.status == "installing" then
+                return true
+            end
         end
+    elseif opts.dashboard == "simple" then
+        return true    
     end
+
     return false
 end
 
@@ -267,8 +282,8 @@ function Manager:load_specs(specs_dir)
     local utils = self.utils
     local all_specs = {}
     local seen_names = {}
-    local pre_path = vim.fn.stdpath("config") .. "/lua"
-    local specs_path = pre_path .. (specs_dir or "/packs")
+    local pre_path = vim.fn.stdpath("config")
+    local specs_path = pre_path .. (specs_dir or "/lua/packs")
 
     if vim.fn.isdirectory(specs_path) == 0 then
         utils.safe_notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
@@ -280,7 +295,7 @@ function Manager:load_specs(specs_dir)
     })
 
     if #spec_files == 0 then
-        utils.safe_notify(string.format("No spec files found in: %s", specs_path), vim.log.levels.INFO)
+        Utils.safe_notify(string.format("No spec files found in: %s", specs_path), vim.log.levels.INFO)
         return all_specs
     end
 
@@ -294,11 +309,11 @@ function Manager:load_specs(specs_dir)
                     seen_names[name] = true
                     table.insert(all_specs, spec)
                 else
-                    utils.safe_notify(string.format("Duplicate spec: %s (skipping)", name), vim.log.levels.WARN)
+                    Utils.safe_notify(string.format("Duplicate spec: %s (skipping)", name), vim.log.levels.WARN)
                 end
             end
         elseif not success then
-            utils.safe_notify(
+            Utils.safe_notify(
                 string.format("Failed to load spec file: %s - %s", file, tostring(file_specs)),
                 vim.log.levels.ERROR
             )
@@ -306,7 +321,7 @@ function Manager:load_specs(specs_dir)
     end
 
     if #all_specs == 0 then
-        utils.safe_notify("No pack specs found", vim.log.levels.INFO)
+        Utils.safe_notify("No pack specs found", vim.log.levels.INFO)
         return all_specs
     end
 
@@ -315,13 +330,14 @@ end
 -- ============================================================================
 -- Main Entry Point: run_packs method
 -- ============================================================================
-function Manager:run_packs(opts)
-    local utils = self.utils
-    opts = opts or {}
-    local Event = self.container:resolve("bus")
+function Manager:run_packs()
+    local Utils = self.utils
+    local Bus = self.bus
+    local Dashboard = self.container:resolve("dashboard")
     local Loader = self.container:resolve("loader")
+    
     -- Load specs
-    local all_specs = self:load_specs(opts.directory)
+    local all_specs = self:load_specs(self.opts.directory)
     if #all_specs == 0 then
         return all_specs
     end
@@ -332,22 +348,16 @@ function Manager:run_packs(opts)
     local created_count = 0
 
     -- Show dashboard if needed
-    if opts.dashboard == "smart" and should_show_dashboard(all_specs) then
-        local ok, Dashboard = pcall(require, "sage.ui.dashboard")
-        if ok then
-            Dashboard:open()
-        end
+    if self.opts.dashboard == "smart" and should_show_dashboard(all_specs, self.opts) then
+            vim.schedule(function() Dashboard:open() end)
     elseif opts.dashboard == "simple" then
-        local ok, Dashboard = pcall(require, "sage.ui.dashboard")
-        if ok then
-            Dashboard:open()
-        end
+            vim.schedule(function() Dashboard:open() end)
     end
 
     local function process_stages(by_stage)
         local function process_stage(stage_name, packs)
             if #packs == 0 then
-                utils.safe_notify(string.format("[STAGE] %s: 0 packs, skipping", stage_name), vim.log.levels.DEBUG, {})
+                Utils.safe_notify(string.format("[STAGE] %s: 0 packs, skipping", stage_name), vim.log.levels.DEBUG, {})
                 return
             end
 
@@ -355,7 +365,7 @@ function Manager:run_packs(opts)
                 Loader:run(stage_name, packs, self, opts)
             end)
             if not ok then
-                utils.safe_notify(
+                Utils.safe_notify(
                     string.format("Stage '%s' loading failed: %s", stage_name, tostring(err)),
                     vim.log.levels.ERROR
                 )
@@ -368,7 +378,7 @@ function Manager:run_packs(opts)
         process_stage("disabled", by_stage.disabled)
 
         vim.schedule(function()
-            Event.emit("pack:complete", {
+            Bus.emit("pack:complete", {
                 duration = 0,
                 num_packs = #all_packs,
                 by_stage = {
@@ -394,7 +404,7 @@ function Manager:run_packs(opts)
         -- The callback will fire when ALL packs have called their load() function
         self:install_activate_batch(by_stage, function(success, result)
             if not success then
-                utils.safe_notify(
+                Utils.safe_notify(
                     string.format("Installation failed: %s", result.error or "unknown error"),
                     vim.log.levels.ERROR
                 )
@@ -404,7 +414,7 @@ function Manager:run_packs(opts)
             if success then
                 -- Show summary if there were failures
                 if result.failed_count and result.failed_count > 0 then
-                    utils.safe_notify(
+                    Utils.safe_notify(
                         string.format(
                             "Installation completed with %d failures: %s",
                             result.failed_count,
@@ -422,9 +432,10 @@ function Manager:run_packs(opts)
 
     for i, spec in ipairs(all_specs) do
         local Pack = self:create_pack(spec)
+        
         local name = Pack.specs.normalize.name
-
         Pack:set_status("created")
+        
         self.packs[name] = Pack
         table.insert(all_packs, Pack)
 
@@ -436,7 +447,7 @@ function Manager:run_packs(opts)
 
         vim.schedule(function()
             vim.defer_fn(function()
-                Event.emit("pack:created", {
+                Bus.emit("pack:created", {
                     name = pack_name,
                     stage = pack_stage,
                     status = pack_status,
@@ -445,7 +456,7 @@ function Manager:run_packs(opts)
                 })
                 created_count = created_count + 1
                 if created_count == total_to_create then
-                    Event.emit("pack:all_created", { num_packs = total_to_create })
+                    Bus.emit("pack:all_created", { num_packs = total_to_create })
                     process_packs()
                 end
             end, delay * pack_index)
@@ -458,7 +469,7 @@ end
 -- Cleanup on shutdown
 -- ============================================================================
 function Manager:cleanup()
-    local Loader = require("sage.core.loader")
+    local Loader = self.container:resolve("loader")
     Loader:close_all()
     self.packs = {}
 end

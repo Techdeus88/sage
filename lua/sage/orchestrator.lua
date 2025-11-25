@@ -151,9 +151,10 @@ function Orchestrator:init_ui()
 end
 
 function Orchestrator:init_loader()
-    if not self.manager or not self.bus or not self.logger then
-        error("Manager, Bus, and Logger must be initialized before loader")
+    if not self.bus or not self.logger then
+        error("Bus, and Logger must be initialized before loader")
     end
+
     local Loader = require("sage.core.loader")
     self.loader = Loader.new(self.container)
 
@@ -199,9 +200,9 @@ function Orchestrator:execute_initialization()
     self:init_pack()
     self:init_deps()
     self:init_manager()
+    self:init_loader()
     self:init_api()
     self:init_ui()
-    self:init_loader()
     self:init_command()
     self:init_task()
 
