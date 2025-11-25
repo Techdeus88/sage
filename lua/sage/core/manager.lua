@@ -54,7 +54,7 @@ end
 -- ============================================================================
 function Manager:install_activate_batch(pack_groups, on_complete)
     local Utils = self.utils
-    local Event = self.bus
+    local Bus = self.bus
     local add_opts = self.opts.add_opts
 
     -- Flatten all packs from all stages
@@ -92,7 +92,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         pack:set_status("installing")
 
         vim.schedule(function()
-            Event.emit("pack:install:start", {
+            Busvent.emit("pack:install:start", {
                 name = name,
                 status = "installing",
                 message = "Installating",
@@ -180,7 +180,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
             -- Emit install:finish event
             vim.schedule(function()
-                Event.emit("pack:install:finish", {
+                Bus.emit("pack:install:finish", {
                     name = pack_name,
                     status = "installed",
                     message = "Installation complete",
@@ -226,7 +226,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         end
 
         vim.schedule(function()
-            utils.safe_notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
+            Utils.safe_notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
         end)
 
         -- Mark all as failed
@@ -236,7 +236,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         end
 
         vim.schedule(function()
-            Event.emit("pack:install:failed", {
+            Bus.emit("pack:install:failed", {
                 count = #all_packs,
                 message = "Batch installation failed",
                 error = tostring(err),
@@ -279,14 +279,14 @@ end
 -- Load Pack Specs from Directory
 -- ============================================================================
 function Manager:load_specs(specs_dir)
-    local utils = self.utils
+    local Utils = self.utils
     local all_specs = {}
     local seen_names = {}
     local pre_path = vim.fn.stdpath("config")
     local specs_path = pre_path .. (specs_dir or "/lua/packs")
 
     if vim.fn.isdirectory(specs_path) == 0 then
-        utils.safe_notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
+        Utils.safe_notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
         return all_specs
     end
 
