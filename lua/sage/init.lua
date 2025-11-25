@@ -20,10 +20,6 @@ local M = {}
 -- ============================================================================
 local function setup_monitoring(bus) end
 
-local function setup_container()
-    return require("sage.core.container").get_instance()
-end
-
 local function setup_orchestrator(opts)
     local Orchestrator = require("sage.orchestrator")
     local orchestrator = Orchestrator.new(opts)
@@ -38,12 +34,7 @@ function M.setup(opts)
     local orchestrator = setup_orchestrator(opts)
     -- Extract services
     local container = orchestrator.container
-    local bus = orchestrator.bus
-    local logger = orchestrator.logger
     local manager = orchestrator.manager
-    local dashboard = orchestrator.dashboard
-    local loader = orchestrator.loader
-    local coordinator = orchestrator.task_coordinator
 
     -- Run packs safely
     pcall(function()

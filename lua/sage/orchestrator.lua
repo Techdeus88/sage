@@ -2,11 +2,6 @@
 -- FILE: core/orchestrator.lua
 -- Initialization Orchestrator - Controls startup sequence
 -- ============================================================================
-
--- ============================================================================
--- FILE: core/orchestrator.lua
--- Initialization Orchestrator - Controls startup sequence
--- ============================================================================
 local Orchestrator = {}
 Orchestrator.__index = Orchestrator
 
@@ -23,12 +18,20 @@ function Orchestrator.new(opts)
     self.loader = nil
     self.ui = nil
     self.dashboard = nil
+
     return self
 end
 
 function Orchestrator:init_base()
     require("sage.base.global").init()
     require("sage.base.notify").init()
+    local Utils = require("sage.base.utils")
+
+    self.container:register("utils", function()
+        return Utils
+    end)
+
+    self:log("Orchestrator", "Base initialized (global, base & utils)")
 end
 
 function Orchestrator:init_container()
@@ -60,8 +63,6 @@ function Orchestrator:init_bus()
 
     local EventBus = require("sage.core.bus")
     self.bus = EventBus
-    -- local EventBridge = require("sage.services.event.bridge")
-    -- self.bus.attach_bridge(EventBridge.new())
 
     self.container:register("bus", function()
         return self.bus
@@ -80,14 +81,6 @@ function Orchestrator:init_logger()
         return self.logger
     end, { lazy = false })
     self:log("Orchestrator", "Logger initialized")
-end
-
-function Orchestrator:init_utils()
-    local Utils = require("sage.base.utils")
-    self.container:register("utils", function()
-        return Utils
-    end)
-    self:log("Orchestrator", "Utils initialized")
 end
 
 function Orchestrator:init_manager()
@@ -127,17 +120,16 @@ function Orchestrator:init_api()
     self.container:register("api", function()
         return self.api
     end, { lazy = false })
-    self:log("Orchestrator", "Sage API & Stats initialized and listening")
+    self:log("Orchestrator", "Sage API initialized and listening")
 end
 
 function Orchestrator:init_ui()
     if not self.manager or not self.bus then
         error("Manager, Bus must be initialized before UI")
     end
-
     -- Dashboard is a singleton table, not a class with .new()
     local SageDashboard = require("sage.ui.dashboard")
-    local SageElements = require("sage.ui.core")
+    local SageElements = require("sage.ui.elements")
     local SageIcons = require("sage.ui.icons")
 
     -- Dashboard is the instance itself, not a class
@@ -164,6 +156,7 @@ function Orchestrator:init_loader()
     end
     local Loader = require("sage.core.loader")
     self.loader = Loader.new(self.container)
+
     self.container:register("loader", function()
         return self.loader
     end)
@@ -172,7 +165,7 @@ end
 
 function Orchestrator:init_task()
     if not self.manager or not self.bus or not self.logger then
-        error("Manager, Bus, and Logger must be initialized before tasks")
+        error("Manager, Bus, & Logger must initialize before tasks")
     end
 
     local Task = require("sage.core.tasks.task")
@@ -180,14 +173,15 @@ function Orchestrator:init_task()
     local TaskLifecycle = require("sage.core.tasks.lifecycle")
     local TaskSystem = require("sage.core.tasks.system")
 
-    self.task_coordinator = TaskLifecycle.new(self.container)
+    self.task_lifecycle = TaskLifecycle.new(self.container)
     self.task_builder = TaskBuilder
     self.task_system = TaskSystem
     self.task = Task
-    self.container:register("task_coordinator", function()
-        return self.task_coordinator  -- Fixed: was self.coordinator
+    self.container:register("task_lifecycle", function()
+        return self.task_lifecycle
     end, { lazy = false })
-    self:log("Orchestrator", "Task coordinator initialized")
+
+    self:log("Orchestrator", "Task lifecycle, system, builder w/ tasks initialized")
 end
 
 function Orchestrator:execute_initialization()
@@ -196,20 +190,20 @@ function Orchestrator:execute_initialization()
         return
     end
 
-    self:log("Orchestrator", "Starting initialization sequence")
+    self:log("Orchestrator", "Initialization starting")
+
     self:init_container()
     self:init_base()
     self:init_bus()
     self:init_logger()
-    self:init_utils()
     self:init_pack()
     self:init_deps()
     self:init_manager()
     self:init_api()
     self:init_ui()
     self:init_loader()
-    self:init_task()
     self:init_command()
+    self:init_task()
 
     self.initialized = true
     self:log("Orchestrator", "Initialization complete")
@@ -220,7 +214,8 @@ function Orchestrator:log(source, msg)
     if self.logger then
         self.logger:debug(source, msg)
     else
-        vim.api.nvim_echo({ { string.format("[%s] %s", source, msg) } }, false, {})
+        vim.notify(string.format("%s %s", source, msg), vim.log.levels.DEBUG, { title = "Sage" })
+        -- vim.api.nvim_echo({ { string.format("[%s] %s", source, msg) } }, false, {})
     end
 end
 
