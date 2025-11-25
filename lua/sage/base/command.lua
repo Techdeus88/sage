@@ -3,8 +3,8 @@ local c = {}
 local autocmd = vim.api.nvim_create_autocmd
 
 function c:run_commands()
-    local dashboard = self.dashboard
-    local logger = self.logger
+    local dashboard = c.dashboard
+    local logger = c.logger
 
     vim.api.nvim_create_user_command("Sage", function()
         dashboard:open()
@@ -30,11 +30,11 @@ function c:run_commands()
 end
 
 function c:run_autocmds()
-    local api = self.api
-    local manager = self.manager
-    local bus = self.bus
-    local dashboard = self.dashboard
-    local loader = self.loader
+    local api = c.api
+    local manager = c.manager
+    local bus = c.bus
+    local dashboard = c.dashboard
+    local loader = c.loader
 
     autocmd("VimEnter", {
         group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),

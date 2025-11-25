@@ -141,6 +141,14 @@ function Logger:close_log_window()
     end
 end
 
+function Logger:toggle_log_window()
+    if self.log_win and vim.api.nvim_win_is_valid(self.log_win) then
+        self:close_log_window()
+    else
+        self:open_log_window()
+    end
+end
+
 function Logger:clear_logs()
     self.logs = {}
     self.log_counter = 0
