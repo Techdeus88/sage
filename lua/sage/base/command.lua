@@ -168,11 +168,11 @@ end
 
 function c.init(container)
     c.container = container
-    c.api = container:resolve("api")
-    c.bus = container:resolve("bus")
-    c.dashboard = container:resolve("dashboard")
-    c.loader = container:resolve("loader")
-    c.logger = container:resolve("logger")
+    c.api = c.container:resolve("api")
+    c.bus = c.container:resolve("bus")
+    c.dashboard = c.container:resolve("dashboard")
+    c.loader = c.container:resolve("loader")
+    c.logger = c.container:resolve("logger")
 
     c.run_commands()
     c.run_autocmds()
