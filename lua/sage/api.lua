@@ -17,7 +17,7 @@ function Api.new(container)
 end
 
 function Api:get_stats()
-    local Packs = self.manager:get_packs()
+    local Packs = self.container:resolve("manager"):get_packs()
 
     self.stats["counted"] = 0
     self.stats["loaded"] = 0
