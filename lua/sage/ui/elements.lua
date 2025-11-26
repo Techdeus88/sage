@@ -577,19 +577,28 @@ end
 
 function TaskProgressElement:render()
     local p = self.value
+    local format_output = ""
     if p.total == 0 then
         return ""
     end
+
     if p.completed == p.total then
-        return "[✓]"
+        format_output = format_output .. "[✓]"
     end
-    if p.required_completed < p.required_total then
-        return string.format("%d/%d*", p.required_completed, p.required_total)
+    if p.required_completed <= p.required_total then
+        format_output = format_output .. string.format(" %d/%d*", p.required_completed, p.required_total)
     end
     local remaining = p.required_total - p.required_completed
-    local prefix = " 󰸞 "
-    local suffix = string.format("%d tasks remaining", remaining)
-    return prefix .. string.format("(%d/%d)", p.completed, p.total) .. suffix
+    local suffix = ""
+    if remaining > 0 then
+        local add_s = ""
+        if remaining > 1 then
+            add_s = "s"
+        end
+
+        suffix = suffix .. string.format(" %d task%s remaining", remaining, add_s)
+    end
+    return format_output .. suffix
 end
 
 return {

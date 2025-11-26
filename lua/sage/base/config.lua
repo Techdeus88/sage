@@ -20,5 +20,5 @@ return {
     level = "INFO",
     max_log = 1000,
 
-    install_timeout = 30000,
+    install_timeout = 60000,
 }

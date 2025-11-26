@@ -154,7 +154,7 @@ function Manager:create_timeout_timer(state, on_complete)
     local Utils = self.utils
 
     local timer = vim.loop.new_timer()
-    local timeout_ms = self.opts.install_timeout or 30000 -- 30 seconds default
+    local timeout_ms = self.opts.install_timeout -- 60 seconds default
 
     timer:start(
         timeout_ms,
