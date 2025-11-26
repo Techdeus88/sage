@@ -159,13 +159,13 @@ function Orchestrator:init_loader()
     self:log("Orchestrator", "Loader initialized")
 end
 
-fucntion Orchestrator:init_command()
+function Orchestrator:init_command()
     if not self.bus or not self.manager or not self.logger or not self.api then
         error("Bus, Manager, Logger and API must initialize before command")
     end
-    local Command = require("sage.base.command")
-    Command.init(self.container)
-
+    require("sage.base.command").init(self.container)
+    
+    self:log("Orchestrator", "Command/s initialized")
 end
 
 function Orchestrator:init_task()
