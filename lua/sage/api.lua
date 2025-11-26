@@ -1,10 +1,11 @@
 local API = {}
 
-function API.new(container, manager)
+function API.new(container)
     local self = setmetatable({}, API)
 
     self.container = container
-    self.manager = manager
+
+    self.manager = self.container:resolve("manager")
     self.utils = self.container:resolve("utils")
 
     self.stats = {}

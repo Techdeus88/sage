@@ -223,11 +223,11 @@ function Orchestrator:init_public_api()
     end
 
     local SageAPI = require("sage.api")
-    self.api = SageAPI.new(self.container, self.manager)
+    self.api = SageAPI.new(self.container)
 
     self.container:register("api", function()
         return self.api
-    end)
+    end, { lazy = false })
 
     self:log("Orchestrator", "SageAPI (public) registered")
 end
