@@ -114,7 +114,7 @@ function Orchestrator:init_metrics()
         error("Bus, Logger must be initialized before metrics")
     end
     local SageMetrics = require("sage.core.metrics")
-    self.metrics = SageMetrics.new(self.container, self.manager)
+    self.metrics = SageMetrics:get_singleton(self.container)
     self.container:register("metrics", function()
         return self.metrics
     end, { lazy = false })

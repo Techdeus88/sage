@@ -1,11 +1,21 @@
 local Metrics = {}
-Metrics.__index = Api
 
-function Metrics.new(container, manager)
+Metrics.__index = Metrics
+Metrics._singleton = nil
+
+function Metrics.get_singleton(container)
+    if Metrics._singleton == nil then
+        Metrics._singleton = Metrics.new(container)
+    end
+
+    return Metrics._singleton
+end
+
+function Metrics.new(container)
     local self = setmetatable({}, Metrics)
 
     self.container = container
-    self.manager = manager
+    self.manager = self.container:resolve("manager")
     self.utils = self.container:resolve("utils")
 
     self.stats = {}
@@ -14,6 +24,13 @@ function Metrics.new(container, manager)
     self.stats.times.loads = {}
 
     return self
+end
+
+function Metrics:track_event(event, value)
+    if self.stats.times.events then
+        self.stats.times.events[event] = value
+    end
+    return true, string.format("Event %s tracked with value %s", event, value)
 end
 
 function Metrics:get_stats()
@@ -65,18 +82,12 @@ function Metrics:get_config()
             data = pack.specs.normalize.data,
         }
     end
+    return config
 end
 
 function Metrics:get_vim_info(pack_name)
     local vim_pack = vim.pack.get({ name = pack_name })
     return vim_pack
-end
-
-function Metrics:track_event(event, value)
-    if self.stats.times.events then
-        self.stats.times.events[event] = value
-    end
-    return true, string.format("Event %s tracked with value %s", event, value)
 end
 
 function Metrics:get_event(event)
@@ -87,10 +98,10 @@ end
 
 function Metrics:get_stage_lists()
     local Manager = self.manager
-    local utils = self.utils
+    local Utils = self.utils
     local Packs = Manager.packs
     local all_packs = vim.tbl_values(Packs)
-    local sorted = utils.sort_packs(all_packs)
+    local sorted = Utils.sort_packs(all_packs)
 
     return sorted
 end
