@@ -184,31 +184,32 @@ local function format_table_value(key, val, val_type, indent, max_length)
 
     local tbl_key = tostring(key):upper()
     local prefix = indent .. tbl_key .. " -> "
-
+    local f_value = nil
+    
     if val_type == "string" then
-        return string.format("%s %s", prefix, val)
+        f_value = string.format("%s [%s]", prefix, val)
     end
     if val_type == "number" then
-        return string.format("%s %s", prefix, string.format("%.0f", val))
+        f_value = string.format("%s [%s]", prefix, string.format("%.0f", val))
     end
     if val_type == "boolean" then
         if val then
-            return prefix .. "true"
+            f_value = string.format("%s [%s]", prefix, 'true')
         else
-            return prefix .. "false"
+            f_value = string.format("%s [%s]", prefix, 'false')
         end
     end
     if val_type == "function" then
-        return prefix .. "<function>"
+        f_value = string.format("%s [%s]", prefix, "<function>")
     end
     if val_type == "userdata" then
-            return prefix .. "<userdata>"
+            f_value = string.format("%s [%s]", prefix, "<userdata>")
     end
 
-    return prefix .. "Unknown value"
+    return f_value
 end
 
-local function format_table(lines, tbl, indent, max_length)
+local function format_table(lines, tbl, indent, max_length, num_tables)
     lines = lines or {}
     max_length = max_length or 10
     indent = indent or 0
@@ -220,13 +221,15 @@ local function format_table(lines, tbl, indent, max_length)
     for k, v in pairs(tbl) do
         local val_type = type(v)
         if val_type == "table" then
-            local tbl_lines = format_table({}, v, indent + 1, max_length)
+            num_tables = num_tables + 1
+            local tbl_lines = format_table({}, v, indent + 1, max_length, num_tables)
             vim.list_extend(lines, tbl_lines)
         else
             local tbl_value = format_table_value(k, v, val_type, indent, max_length)
             table.insert(lines, tbl_value)
         end
     end
+    table.insert(lines, string.format("There were %d tables", num_tables))
     return lines
 end
 
@@ -270,7 +273,7 @@ function Dashboard:display_pack_comparison(pack_name)
 
     -- Content
     local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)" }
-    content_lines = vim.list_extend(content_lines, format_table(lines, pack, 0, 8))
+    content_lines = vim.list_extend(content_lines, format_table(content_lines, pack, 0, 8, 1))
     for _, content_text in ipairs(content_lines) do
         local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
         table.insert(lines, string.rep(" ", content_padding) .. content_text)
@@ -301,7 +304,7 @@ function Dashboard:display_pack_comparison(pack_name)
     -- Add padding to each line
     local padded_lines = {}
     for _, line in ipairs(lines) do
-        table.insert(padded_lines, "  " .. line)  -- Add consistent left padding
+        table.insert(padded_lines, '  ' .. line)  -- Add consistent left padding
     end
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })

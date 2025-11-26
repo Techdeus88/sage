@@ -3,6 +3,7 @@ return {
     data_path = vim.fn.stdpath("data"),
     packages_rpath = "/site/pack/core/opt/",
     unpack_rpath = "/site/pack/managers/start/unpack/", -- ?
+
     directory = "/lua/plugins", -- starting point ->  aka directory to load packs from
     add_opts = { confirm = false }, ---@type vim.pack.keyset.add
     update_opts = { force = true }, ---@type vim.pack.keyset.update
@@ -16,6 +17,8 @@ return {
     lock_windows = true,
     auto_focus = true,
 
-    level = "DEBUG",
+    level = "INFO",
     max_log = 1000,
+
+    install_timeout = 30000,
 }
