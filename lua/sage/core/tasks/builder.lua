@@ -27,9 +27,6 @@ function TaskBuilder.create_default_tasks()
                 if not spec.src or spec.src == "" then
                     error("Pack source is required")
                 end
-                if not spec.config or spec.config == "" then
-                    error("Pack config is required")
-                end
                 return true
             end,
         })
@@ -110,15 +107,16 @@ function TaskBuilder.create_default_tasks()
         })
     )
 
-    -- Task 5: Configure
+    -- Task 5: Configure (NOW REQUIRED)
     table.insert(
         tasks,
         Task.new({
             id = "config",
             name = "Configure",
-            required = true,
+            required = true, -- CHANGED: Config is now REQUIRED
             depends = { "install" },
             condition = function(p)
+                -- Config task runs if pack has a config function
                 return p and p.specs and p.specs.normalize and p.specs.normalize.data.config ~= nil
             end,
             fn = function(p)
@@ -128,6 +126,8 @@ function TaskBuilder.create_default_tasks()
 
                 local config = p.specs.normalize.data.config
                 if type(config) == "function" then
+                    -- This is where the actual config function runs
+                    -- NOT in the Loader!
                     config()
                 end
                 return true

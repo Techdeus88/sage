@@ -635,7 +635,7 @@ function Manager:run_packs()
     if show_dashboard then
         vim.defer_fn(function()
             Dashboard:open()
-        end, 0)
+        end, 500)
     end
 
     -- Create all packs (no artificial delays)
