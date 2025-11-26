@@ -9,7 +9,9 @@ function Orchestrator.new(opts)
     local self = setmetatable({}, Orchestrator)
     self.opts = opts or {}
     self.initialized = false
-
+    
+    self.temp_logs = {}
+    self.first_access = true
     self.container = nil
     self.bus = nil
     self.logger = nil
@@ -237,12 +239,36 @@ function Orchestrator:execute_initialization()
     self:log("Orchestrator", "Initialization complete")
 end
 
+function Orchestrator:dump_temp_logs()
+    if self.first_access then
+        for _, log in pairs(self.temp_logs) do
+            self.logger:debug(log.source, log.msg)
+        end
+        -- Reset temp logs
+        self.temp_logs = {}
+        return true
+    end
+    return false
+end
+
 function Orchestrator:log(source, msg)
     -- Use vim.notify if logger not ready
     if self.logger then
+        if self.first_access then
+            local ok, _ = pcall(function() self:dump_temp_logs() end)
+            if not ok then error("Temp log dump errored") end
+            -- Set first access to false
+            self.first_access = false
+            assert(vim.tbl_count(self.temp_logs) == 0, "Temp Logs did not reset!")
+        end
         self.logger:debug(source, msg)
     else
-        vim.notify(string.format("%s %s", source, msg), vim.log.levels.DEBUG, { title = "Sage" })
+        local curr_log_num = vim.tbl_count(self.temp_logs) + 1
+        local log = { source = source, msg = msg }
+    
+        if self.temp_logs[curr_log_num] == nil then
+            self.temp_logs[curr_log_num] = log
+        end
         -- vim.api.nvim_echo({ { string.format("[%s] %s", source, msg) } }, false, {})
     end
 end
