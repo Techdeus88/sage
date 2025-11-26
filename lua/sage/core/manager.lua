@@ -5,22 +5,22 @@ Manager.__index = Manager
 
 function Manager.new(container, opts)
     local self = setmetatable({}, Manager)
-    
+
     self.container = container
     self.opts = opts
-    
+
     self.bus = self.container:resolve("bus")
     self.utils = self.container:resolve("utils")
-    
+
     self.packs = {}
     self.install_times = {}
-    
+
     self.delay_time = 100
     -- Track installation state
     self.installation_complete = false
     self.installation_success = false
     self.installation_result = nil
-    
+
     return self
 end
 
@@ -30,10 +30,10 @@ end
 function Manager:create_pack(spec)
     local pack = self.container:resolve("pack")
     local TaskSystem = self.container:resolve("task_system")
-    
+
     local Pack = pack.new(spec)
     TaskSystem.wire_pack(Pack)
-    
+
     return Pack
 end
 
@@ -269,7 +269,7 @@ local function should_show_dashboard(all_specs, opts)
             end
         end
     elseif opts.dashboard == "simple" then
-        return true    
+        return true
     end
 
     return false
@@ -284,7 +284,7 @@ function Manager:load_specs(specs_dir)
     local seen_names = {}
     local pre_path = vim.fn.stdpath("config")
     local specs_path = pre_path .. (specs_dir or "/lua/packs")
-    
+
     if vim.fn.isdirectory(specs_path) == 0 then
         Utils.safe_notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
         return all_specs
@@ -337,11 +337,11 @@ function Manager:run_packs()
     local Loader = self.container:resolve("loader")
     -- Load specs
     local all_specs = self:load_specs(self.opts.directory)
-    
+
     if #all_specs == 0 then
         return all_specs
     end
-    
+
     local all_packs = {}
     local delay = 75
     local total_to_create = #all_specs
@@ -349,17 +349,13 @@ function Manager:run_packs()
 
     -- Show dashboard if needed
     if self.opts.dashboard == "smart" and should_show_dashboard(all_specs, self.opts) then
-            vim.schedule(function()
-                vim.defer_fn(function() 
-                        Dashboard:open() 
-                end, 500)
-            end)
+        vim.defer_fn(function()
+            Dashboard:open()
+        end, 500)
     elseif self.opts.dashboard == "simple" then
-            vim.schedule(function()
-                vim.defer_fn(function() 
-                        Dashboard:open() 
-                end, 500)
-            end)
+        vim.defer_fn(function()
+            Dashboard:open()
+        end, 500)
     end
 
     local function process_stages(by_stage)
@@ -442,7 +438,7 @@ function Manager:run_packs()
         local Pack = self:create_pack(spec)
         local name = Pack.specs.normalize.name
         Pack:set_status("created")
-        
+
         self.packs[name] = Pack
         table.insert(all_packs, Pack)
 
@@ -464,7 +460,7 @@ function Manager:run_packs()
                 created_count = created_count + 1
                 if created_count == total_to_create then
                     Bus.emit("pack:all_created", { num_packs = total_to_create })
-                    process_packs(Loader)
+                    process_packs()
                 end
             end, delay * pack_index)
         end)
