@@ -1,9 +1,8 @@
-
 local width_percentage = 0.8
 local height_percentage = 0.8
 
 local function center_text(text, width)
-    local text_width = vim.fn.strdisplaywidth(text)  -- Use display width for proper unicode handling
+    local text_width = vim.fn.strdisplaywidth(text) -- Use display width for proper unicode handling
     local padding = math.floor((width - text_width) / 2)
     if padding < 0 then
         padding = 0
@@ -185,7 +184,7 @@ local function format_table_value(key, val, val_type, indent, max_length)
     local tbl_key = tostring(key):upper()
     local prefix = indent .. tbl_key .. " -> "
     local f_value = nil
-    
+
     if val_type == "string" then
         f_value = string.format("%s [%s]", prefix, val)
     end
@@ -194,16 +193,16 @@ local function format_table_value(key, val, val_type, indent, max_length)
     end
     if val_type == "boolean" then
         if val then
-            f_value = string.format("%s [%s]", prefix, 'true')
+            f_value = string.format("%s [%s]", prefix, "true")
         else
-            f_value = string.format("%s [%s]", prefix, 'false')
+            f_value = string.format("%s [%s]", prefix, "false")
         end
     end
     if val_type == "function" then
         f_value = string.format("%s [%s]", prefix, "<function>")
     end
     if val_type == "userdata" then
-            f_value = string.format("%s [%s]", prefix, "<userdata>")
+        f_value = string.format("%s [%s]", prefix, "<userdata>")
     end
 
     return f_value
@@ -258,16 +257,23 @@ function Dashboard:display_pack_comparison(pack_name)
     local col = math.floor((width - win_width) / 2)
 
     -- Calculate inner width (accounting for borders and padding)
-    local inner_width = win_width - 4  -- 2 for padding, 2 for borders
+    local inner_width = win_width - 4 -- 2 for padding, 2 for borders
 
     local lines = {}
 
     -- Header box
     local header_text = string.format("Pack: %s", pack_name)
-    local header_padding = math.floor((inner_width - #header_text - 2) / 2)  -- -2 for border chars
+    local header_padding = math.floor((inner_width - #header_text - 2) / 2) -- -2 for border chars
 
     table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗")
-    table.insert(lines, "║ " .. string.rep(" ", header_padding) .. header_text .. string.rep(" ", inner_width - header_padding - #header_text - 3) .. "║")
+    table.insert(
+        lines,
+        "║ "
+            .. string.rep(" ", header_padding)
+            .. header_text
+            .. string.rep(" ", inner_width - header_padding - #header_text - 3)
+            .. "║"
+    )
     table.insert(lines, "╚" .. string.rep("═", inner_width - 2) .. "╝")
     table.insert(lines, "")
 
@@ -286,11 +292,18 @@ function Dashboard:display_pack_comparison(pack_name)
     local close_text = "Press 'q' to close this buffer"
     local close_padding = math.floor((inner_width - #close_text) / 2)
     table.insert(lines, "┌" .. string.rep("─", inner_width - 2) .. "┐")
-    table.insert(lines, "│" .. string.rep(" ", close_padding) .. close_text .. string.rep(" ", inner_width - close_padding - #close_text - 2) .. "│")
+    table.insert(
+        lines,
+        "│"
+            .. string.rep(" ", close_padding)
+            .. close_text
+            .. string.rep(" ", inner_width - close_padding - #close_text - 2)
+            .. "│"
+    )
     table.insert(lines, "└" .. string.rep("─", inner_width - 2) .. "┘")
 
     local buf = vim.api.nvim_create_buf(false, true)
-    local win = vim.api.nvim_open_win(buf, true, {  -- Changed to true to focus the window
+    local win = vim.api.nvim_open_win(buf, true, { -- Changed to true to focus the window
         relative = "editor",
         width = win_width,
         height = win_height,
@@ -304,7 +317,7 @@ function Dashboard:display_pack_comparison(pack_name)
     -- Add padding to each line
     local padded_lines = {}
     for _, line in ipairs(lines) do
-        table.insert(padded_lines, '  ' .. line)  -- Add consistent left padding
+        table.insert(padded_lines, "  " .. line) -- Add consistent left padding
     end
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
@@ -1102,15 +1115,15 @@ function Dashboard:setup_keymaps()
     end
 
     vim.keymap.set("n", "<A-CR>", function()
-            local cursor = vim.api.nvim_win_get_cursor(0)
-            local row = self:get_row_at_line(cursor[1])
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        local row = self:get_row_at_line(cursor[1])
 
-            if not row then
-                vim.notify("No pack selected", vim.log.levels.WARN)
-                return
-            end
+        if not row then
+            vim.notify("No pack selected", vim.log.levels.WARN)
+            return
+        end
 
-            self:display_pack_comparison(row.name)
+        self:display_pack_comparison(row.name)
     end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
 
     vim.keymap.set("n", "r", function()
@@ -1155,7 +1168,7 @@ function Dashboard:open()
         self:create_three_pane_layout()
         self:render_header()
         self:render_footer()
-        self:listen()
+        -- self:listen()
         self:setup_keymaps()
     end)
 
@@ -1477,10 +1490,13 @@ function Dashboard:init(container, elements, icons, opts)
     self.container = container
     self.elements = elements
     self.icons = icons
+
+    self.bus = self.container:resolve("bus")
     self.manager = self.container:resolve("manager")
     self.utils = self.container:resolve("utils")
-    self.bus = self.container:resolve("bus")
+
     self:setup_debounced_footer()
+    self:listen()
 
     -- ========================================================================
     -- BASE UI HIGHLIGHTS

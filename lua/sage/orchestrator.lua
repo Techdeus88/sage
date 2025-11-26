@@ -9,7 +9,7 @@ function Orchestrator.new(opts)
     local self = setmetatable({}, Orchestrator)
     self.opts = opts or {}
     self.initialized = false
-    
+
     self.temp_logs = {}
     self.first_access = true
 
@@ -115,7 +115,7 @@ function Orchestrator:init_api()
     self.api = SageApi.new(self.container)
     self.container:register("api", function()
         return self.api
-    end, { lazy = false })
+    end)
     self:log("Orchestrator", "SageAPI registered")
 end
 
@@ -165,7 +165,7 @@ function Orchestrator:init_command()
         error("Bus, Manager, Logger and API must initialize before command")
     end
     require("sage.base.command").init(self.container)
-    
+
     self:log("Orchestrator", "Command/s initialized")
 end
 
@@ -256,8 +256,12 @@ function Orchestrator:log(source, msg)
     -- Use vim.notify if logger not ready
     if self.logger then
         if self.first_access then
-            local ok, _ = pcall(function() self:dump_temp_logs() end)
-            if not ok then error("Temp log dump errored") end
+            local ok, _ = pcall(function()
+                self:dump_temp_logs()
+            end)
+            if not ok then
+                error("Temp log dump errored")
+            end
             -- Set first access to false
             self.first_access = false
             assert(vim.tbl_count(self.temp_logs) == 0, "Temp Logs did not reset!")
@@ -266,7 +270,7 @@ function Orchestrator:log(source, msg)
     else
         local curr_log_num = vim.tbl_count(self.temp_logs) + 1
         local log = { source = source, msg = msg }
-    
+
         if not self.temp_logs[curr_log_num] then
             self.temp_logs[curr_log_num] = log
         end

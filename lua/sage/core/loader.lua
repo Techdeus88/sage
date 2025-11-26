@@ -257,14 +257,20 @@ end
 
 function LaterLoader:start(packs, manager, opts)
     -- Set initial status for all later packs BEFORE applying strategy
-    for _, pack in ipairs(packs or {}) do
+    for i, pack in ipairs(packs or {}) do
+        local delay = (i - 1) * 50
         pack:set_status("pending")
-        self.bus.emit("pack:config:start", {
-            name = pack.specs.normalize.name,
-            status = "pending",
-            message = "Waiting for later stage trigger",
-            pack = pack,
-        })
+
+        vim.schedule(function()
+            vim.defer_fn(function()
+                self.bus.emit("pack:config:start", {
+                    name = pack.specs.normalize.name,
+                    status = "pending",
+                    message = "Waiting for later stage trigger",
+                    pack = pack,
+                })
+            end, delay)
+        end)
     end
 
     local strategy = (opts and opts.strategy) or "vimenter"
@@ -607,12 +613,16 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         end
 
         pack:set_status("lazy")
-        self.bus.emit("pack:lazy", {
-            name = name,
-            status = pack:get_status(),
-            message = "Waiting for events",
-            trigger = { type = "events", value = events },
-        })
+        vim.schedule(function()
+            vim.defer_fn(function()
+                self.bus.emit("pack:lazy", {
+                    name = name,
+                    status = pack:get_status(),
+                    message = "Waiting for events",
+                    trigger = { type = "events", value = events },
+                })
+            end, 100)
+        end)
         return true
     end
 
@@ -635,12 +645,16 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         end
 
         pack:set_status("lazy")
-        self.bus.emit("pack:lazy", {
-            name = name,
-            status = pack:get_status(),
-            message = "Waiting for filetype",
-            trigger = { type = "fts", value = filetypes },
-        })
+        vim.schedule(function()
+            vim.defer_fn(function()
+                self.bus.emit("pack:lazy", {
+                    name = name,
+                    status = pack:get_status(),
+                    message = "Waiting for filetype",
+                    trigger = { type = "fts", value = filetypes },
+                })
+            end, 100)
+        end)
         return true
     end
 
@@ -664,12 +678,16 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         end
 
         pack:set_status("lazy")
-        self.bus.emit("pack:lazy", {
-            name = name,
-            status = pack:get_status(),
-            message = "Waiting for command",
-            trigger = { type = "cmds", value = commands },
-        })
+        vim.schedule(function()
+            vim.defer_fn(function()
+                self.bus.emit("pack:lazy", {
+                    name = name,
+                    status = pack:get_status(),
+                    message = "Waiting for command",
+                    trigger = { type = "cmds", value = commands },
+                })
+            end, 100)
+        end)
         return true
     end
 
@@ -699,12 +717,16 @@ function LazyLoader:setup_standard_triggers(pack, on_config)
         end
 
         pack:set_status("lazy")
-        self.bus.emit("pack:lazy", {
-            name = name,
-            status = pack:get_status(),
-            message = "Waiting for keymap",
-            trigger = { type = "keys", value = ks },
-        })
+        vim.schedule(function()
+            vim.defer_fn(function()
+                self.bus.emit("pack:lazy", {
+                    name = name,
+                    status = pack:get_status(),
+                    message = "Waiting for keymap",
+                    trigger = { type = "keys", value = ks },
+                })
+            end, 100)
+        end)
         return true
     end
 

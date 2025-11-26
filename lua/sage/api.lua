@@ -17,7 +17,7 @@ function Api.new(container)
 end
 
 function Api:get_stats()
-    local Packs = self.manager.packs
+    local Packs = self.manager:get_packs()
 
     self.stats["counted"] = 0
     self.stats["loaded"] = 0
@@ -80,7 +80,7 @@ function Api:track_event(event, value)
 end
 
 function Api:get_event(event)
-    if self['stats'] and self['stats'].times.events[event] ~= nil then
+    if self["stats"] and self["stats"].times.events[event] ~= nil then
         return self.stats.times.events[event]
     end
 end

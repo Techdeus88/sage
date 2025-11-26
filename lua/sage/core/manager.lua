@@ -108,6 +108,10 @@ function Manager:create_pack(spec)
     return Pack
 end
 
+function Manager:get_packs()
+    return self.packs
+end
+
 function Manager:get_pack(name)
     return self.packs[name]
 end
@@ -447,7 +451,8 @@ function Manager:create_all_packs(specs)
     local packs = {}
     local seen_names = {}
 
-    for _, spec in ipairs(specs) do
+    for i, spec in ipairs(specs) do
+        local delay = (i - 1) * 50
         local pack = self:create_pack(spec)
         local name = pack.specs.normalize.name
 
@@ -459,13 +464,15 @@ function Manager:create_all_packs(specs)
             self.packs[name] = pack
             table.insert(packs, pack)
             vim.schedule(function()
-                self.bus.emit("pack:created", {
+              vim.defer_fn(function()
+                  self.bus.emit("pack:created", {
                     name = name,
                     status = pack:get_status(),
                     stage = pack:get_stage(),
                     message = "Created",
                     pack = pack,
-                })
+                  })
+              end, delay)
             end)
         end
     end
@@ -614,7 +621,7 @@ function Manager:run_packs()
     if show_dashboard then
         vim.defer_fn(function()
             Dashboard:open()
-        end, 500)
+        end, 0)
     end
 
     -- Create all packs (no artificial delays)
