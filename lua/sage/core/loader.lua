@@ -9,8 +9,11 @@ function Loader.new(container, opts)
     local self = setmetatable({}, Loader)
 
     self.opts = opts
+
     self.bus = container:resolve("bus")
     self.utils = container:resolve("utils")
+
+    self.timers = {}
 
     return self
 end
@@ -156,20 +159,24 @@ function Loader:load_lazy(packs)
         local spec = pack.specs.normalize
 
         -- Setup triggers (commands, keys, events, etc.)
-        if spec.data.cmd then
-            self:setup_cmd_triggers(pack, spec.data.cmd)
+        local commands = spec.data.cmds or spec.data.cmd
+        if commands then
+            self:setup_cmd_triggers(pack, commands)
         end
 
-        if spec.data.keys then
-            self:setup_key_triggers(pack, spec.data.keys)
+        local keys = spec.data.keys
+        if keys then
+            self:setup_key_triggers(pack, keys)
         end
 
-        if spec.data.event then
-            self:setup_event_triggers(pack, spec.data.event)
+        local events = spec.data.events or spec.data.event
+        if events then
+            self:setup_event_triggers(pack, events)
         end
 
-        if spec.data.ft then
-            self:setup_filetype_triggers(pack, spec.data.ft)
+        local fts = spec.data.fts or spec.data.ft
+        if fts then
+            self:setup_filetype_triggers(pack, fts)
         end
     end
 end

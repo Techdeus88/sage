@@ -1519,9 +1519,9 @@ function Dashboard:init(container, elements, icons, opts)
     self.bus = self.container:resolve("bus")
     self.manager = self.container:resolve("manager")
     self.utils = self.container:resolve("utils")
+    self:listen()
 
     self:setup_debounced_footer()
-    self:listen()
 
     -- ========================================================================
     -- BASE UI HIGHLIGHTS

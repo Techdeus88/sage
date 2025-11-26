@@ -229,8 +229,10 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
         return
     end
 
-    -- Mark as installed
-    pack.installed = true
+    -- Mark as installed (if the directory exists)
+    if vim.fn.isdirectory(data.path) == 0 then
+        pack:set_installed(true)
+    end
 
     -- Load the pack (packadd) - wrap in schedule to avoid unsafe API call
     vim.schedule(function()
@@ -316,7 +318,7 @@ function Manager:handle_install_failure(err, all_packs, state, on_complete, dela
 
     -- Mark all packs as failed
     for _, pack in ipairs(all_packs) do
-        pack.installed = false
+        pack:set_installed(false)
         pack:set_status("failed")
 
         local pack_name = pack.specs.normalize.name
@@ -976,7 +978,7 @@ function Manager:get_cleanup_stats()
             name = name,
             status = pack:get_status(),
             stage = pack:get_stage(),
-            installed = pack.installed or false,
+            installed = pack:get_installed(),
             has_timers = false,
             active_timers = 0,
         }

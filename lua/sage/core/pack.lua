@@ -98,6 +98,10 @@ function Pack:set_installed(is_installed)
     end
 end
 
+function Pack:get_installed()
+    return self.installed
+end
+
 function Pack:set_rev(rev)
     if rev ~= nil then
         self.rev = rev
