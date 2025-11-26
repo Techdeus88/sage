@@ -8,7 +8,7 @@ function Manager.new(container, opts)
     local self = setmetatable({}, Manager)
 
     self.container = container
-    self.opts = opts
+    self.opts = opts ---@class SageConfig.Opts
 
     self.bus = self.container:resolve("bus")
     self.utils = self.container:resolve("utils")

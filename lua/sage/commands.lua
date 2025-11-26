@@ -1,70 +1,71 @@
 ---@private
 ---@return Sage.Spec[], string[]
 local function get_specs_and_names()
-	local config = require("sage.config")
-	local plugin_fpaths = vim.fn.glob(config.opts.config_path .. config.opts.plugins_rpath .. "*.lua", true, true) ---@type string[]
-	local specs, names = {}, {} ---@type UnPack.Spec[], string[]
+    local config = require("sage.config")
+    local plugin_fpaths = vim.fn.glob(config.opts.config_path .. config.opts.plugins_rpath .. "*.lua", true, true) ---@type string[]
+    local specs, names = {}, {} ---@type Sage.Spec[], string[]
 
-	for _, plugin_fpath in ipairs(plugin_fpaths) do
-		local plugin_name = vim.fn.fnamemodify(plugin_fpath, ":t:r")
-		local success, spec = pcall(require, "plugins." .. plugin_name) ---@type boolean, UnPack.Spec
+    for _, plugin_fpath in ipairs(plugin_fpaths) do
+        local plugin_name = vim.fn.fnamemodify(plugin_fpath, ":t:r")
+        local success, spec = pcall(require, "plugins." .. plugin_name) ---@type boolean, UnPack.Spec
 
-		if not success then
-			vim.schedule(function()
-				vim.notify(("Failed to load plugin spec for %s"):format(plugin_name), vim.log.levels.ERROR)
-			end)
-		elseif type(spec) ~= "table" then
-			vim.schedule(function()
-				vim.notify(("Invalid spec for %s, not a table"):format(plugin_name), vim.log.levels.ERROR)
-			end)
-		else
-			if spec.depends and type(spec.depends) == "table" then
-				for _, dep in ipairs(spec.depends) do
-					if dep.src and type(dep.src) == "string" then
-						specs[#specs + 1] = dep
-						names[#names + 1] = vim.fn.fnamemodify(dep.src, ":t")
-					else
-						vim.schedule(function()
-							vim.notify(
-								("Invalid dependency for %s, missing src"):format(plugin_name),
-								vim.log.levels.ERROR
-							)
-						end)
-					end
-				end
-			end
-			if spec.src and type(spec.src) == "string" then
-				specs[#specs + 1] = spec
-				names[#names + 1] = vim.fn.fnamemodify(spec.src, ":t")
-			else
-				vim.schedule(function()
-					vim.notify(("Invalid spec for %s, missing src"):format(plugin_name), vim.log.levels.ERROR)
-				end)
-			end
-		end
-	end
+        if not success then
+            vim.schedule(function()
+                vim.notify(("Failed to load plugin spec for %s"):format(plugin_name), vim.log.levels.ERROR)
+            end)
+        elseif type(spec) ~= "table" then
+            vim.schedule(function()
+                vim.notify(("Invalid spec for %s, not a table"):format(plugin_name), vim.log.levels.ERROR)
+            end)
+        else
+            if spec.depends and type(spec.depends) == "table" then
+                for _, dep in ipairs(spec.depends) do
+                    if dep.src and type(dep.src) == "string" then
+                        specs[#specs + 1] = dep
+                        names[#names + 1] = vim.fn.fnamemodify(dep.src, ":t")
+                    else
+                        vim.schedule(function()
+                            vim.notify(
+                                ("Invalid dependency for %s, missing src"):format(plugin_name),
+                                vim.log.levels.ERROR
+                            )
+                        end)
+                    end
+                end
+            end
+            if spec.src and type(spec.src) == "string" then
+                specs[#specs + 1] = spec
+                names[#names + 1] = vim.fn.fnamemodify(spec.src, ":t")
+            else
+                vim.schedule(function()
+                    vim.notify(("Invalid spec for %s, missing src"):format(plugin_name), vim.log.levels.ERROR)
+                end)
+            end
+        end
+    end
 
-	return specs, names
+    return specs, names
 end
 
 ---@private
 ---@return string[]
 local function get_package_names()
-	local config = require("sage.config")
-	local package_fpaths = vim.fn.glob(config.opts.data_path .. config.opts.packages_rpath .. "*/", false, true) ---@type string[]
-	local package_names = {} ---@type string[]
+    local config = require("sage.config")
+    local package_fpaths = vim.fn.glob(config.opts.data_path .. config.opts.packages_rpath .. "*/", false, true) ---@type string[]
+    local package_names = {} ---@type string[]
 
-	for _, package_fpath in ipairs(package_fpaths) do
-		local package_name = vim.fn.fnamemodify(package_fpath:sub(1, -2), ":t")
+    for _, package_fpath in ipairs(package_fpaths) do
+        local package_name = vim.fn.fnamemodify(package_fpath:sub(1, -2), ":t")
 
-		package_names[#package_names + 1] = package_name
-	end
+        package_names[#package_names + 1] = package_name
+    end
 
-	return package_names
+    return package_names
 end
 
 local function handle_build(spec)
-    if type(spec.src) ~= "string"
+    if
+        type(spec.src) ~= "string"
         or type(spec.data) ~= "table"
         or type(spec.data.build) ~= "string"
         or spec.data.build:is_empty_or_whitespace()
@@ -74,7 +75,7 @@ local function handle_build(spec)
 
     local config = require("sage.config")
     local package_name = vim.fn.fnamemodify(spec.src, ":t")
-    local package_fpath = config.opts.data_path .. config.opts.packages_rpath.. package_name
+    local package_fpath = config.opts.data_path .. config.opts.packages_rpath .. package_name
     local stat = vim.uv.fs_stat(package_fpath)
     if not stat or stat.type ~= "directory" then
         return
@@ -102,5 +103,3 @@ M.build = function(specs)
 end
 
 return M
-
-

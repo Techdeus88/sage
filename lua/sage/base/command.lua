@@ -1,8 +1,8 @@
 local c = {}
 
 function c:run_commands()
-    local dashboard = c.dashboard
-    local logger = c.logger
+    local dashboard = c.container:resolve("dashboard")
+    local logger = c.container:resolve("logger")
 
     local command = vim.api.nvim_create_user_command
 
@@ -38,12 +38,11 @@ function c:run_commands()
 end
 
 function c:run_autocmds()
-    local api = c.metrics
-    local manager = c.manager
-    local bus = c.bus
-    local dashboard = c.dashboard
-    local loader = c.loader
     local commands = require("sage.commands")
+
+    local api = c.container:resolve("metrics")
+    local bus = c.container:resolve("bus")
+    local manager = c.container:resolve("manager")
 
     local autocmd = vim.api.nvim_create_autocmd
 
@@ -112,7 +111,7 @@ function c:run_autocmds()
             local kind = args.data.kind ---@type string
 
             if kind == "install" or kind == "update" then
-                local spec = args.data.spec ---@type UnPack.Spec
+                local spec = args.data.spec ---@type Sage.Spec
                 local name = spec.name
                 local Pack = manager.packs[name]
                 Pack.set_path(args.data.path)
@@ -159,45 +158,41 @@ function c:run_autocmds()
         group = group,
     })
 
-    autocmd("VimLeavePre", {
-        group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
-        desc = "Cleanup all loaders and dashboard before exit",
-        callback = function()
-            if loader and loader.close_all then
-                pcall(function()
-                    loader.close_all()
-                end)
-            end
-
-            if dashboard and dashboard.close then
-                pcall(function()
-                    dashboard:close()
-                end)
-            end
-
-            if bus and bus.clear then
-                pcall(function()
-                    bus.clear()
-                end)
-            end
-
-            vim.notify("Sage cleanup complete before exit", vim.log.levels.INFO)
-        end,
-    })
+    -- autocmd("VimLeavePre", {
+    --     group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
+    --     desc = "Cleanup all loaders and dashboard before exit",
+    --     callback = function()
+    --         if loader and loader.close_all then
+    --             pcall(function()
+    --                 loader.close_all()
+    --             end)
+    --         end
+    --
+    --         if dashboard and dashboard.close then
+    --             pcall(function()
+    --                 dashboard:close()
+    --             end)
+    --         end
+    --
+    --         if bus and bus.clear then
+    --             pcall(function()
+    --                 bus.clear()
+    --             end)
+    --         end
+    --
+    --         vim.notify("Sage cleanup complete before exit", vim.log.levels.INFO)
+    --     end,
+    -- })
 end
 
 function c.init(container)
     c.container = container
-    c.api = c.container:resolve("metrics")
-    c.bus = c.container:resolve("bus")
-    c.dashboard = c.container:resolve("dashboard")
-    c.loader = c.container:resolve("loader")
-    c.logger = c.container:resolve("logger")
-
-    c.run_commands()
-    c.run_autocmds()
-
     return c
+end
+
+function c.setup_commands()
+    c:run_commands()
+    c:run_autocmds()
 end
 
 return c

@@ -165,10 +165,11 @@ function Orchestrator:init_loader()
 end
 
 function Orchestrator:init_command()
-    if not self.bus or not self.manager or not self.logger or not self.metrics then
-        error("Bus, Manager, Logger and Metrics must initialize before command")
+    if not self.container then
+        error("Container must initialize before command")
     end
-    require("sage.base.command").init(self.container)
+    self.command = require("sage.base.command")
+    self.command.init(self.container)
 
     self:log("Orchestrator", "Command/s initialized")
 end
@@ -219,10 +220,13 @@ function Orchestrator:init_task()
     self:log("Orchestrator", "TaskSystem registered and initialized")
 end
 
-function Orchestrator:init_public_api()
+function Orchestrator:init_public()
     if not self.bus or not self.manager or not self.logger or not self.metrics then
         error("Bus, Manager, Logger and Metrics must initialize before public api")
     end
+
+    local SageCommands = require("sage.commands")
+    self.commands = SageCommands
 
     local SageAPI = require("sage.api")
     self.api = SageAPI.new(self.container)
@@ -230,6 +234,12 @@ function Orchestrator:init_public_api()
     self.container:register("api", function()
         return self.api
     end, { lazy = false })
+
+    self.container:register("commands", function()
+        return self.commands
+    end)
+
+    self.command:setup_commands()
 
     self:log("Orchestrator", "SageAPI (public) registered")
 end
@@ -244,6 +254,7 @@ function Orchestrator:execute_initialization()
 
     self:init_container()
     self:init_base()
+    self:init_command()
     self:init_bus()
     self:init_logger()
     self:init_manager()
@@ -252,9 +263,8 @@ function Orchestrator:execute_initialization()
     self:init_metrics()
     self:init_loader()
     self:init_ui()
-    self:init_command()
     self:init_task()
-    self:init_public_api()
+    self:init_public()
 
     self.initialized = true
     self:log("Orchestrator", "Initialization complete")

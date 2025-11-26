@@ -1,6 +1,7 @@
-local M = {}
+---@class Sage.Config.UserOpts
+local M = {} ---@class Sage.Config
 
-M.opts = {
+M.opts = { ---@class Sage.Config.Opts
     config_path = vim.fn.stdpath("config"),
     data_path = vim.fn.stdpath("data"),
     packages_rpath = "/site/pack/core/opt/",
@@ -28,6 +29,7 @@ M.opts = {
     install_timeout = 60000,
 }
 
+---@param opts? Sage.Config.UserOpts
 function M.setup(opts)
     M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
 end
