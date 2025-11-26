@@ -43,19 +43,6 @@ function Orchestrator:init_container()
     self:log("Orchestrator", "Container initialized")
 end
 
-function Orchestrator:init_command()
-    if not self.container then
-        error("Container must be initialized first")
-    end
-    if not self.bus or not self.api or not self.loader or not self.dashboard then
-        error("Bus, API, Loader, and Dashboard must be initialized before commands")
-    end
-    local cmd = require("sage.base.command")
-    cmd.init(self.container)
-
-    self:log("Orchestrator", "Commands initialized")
-end
-
 function Orchestrator:init_bus()
     if not self.container then
         error("Container must be initialized first")
@@ -67,7 +54,7 @@ function Orchestrator:init_bus()
     self.container:register("bus", function()
         return self.bus
     end, { lazy = false })
-    self:log("Orchestrator", "Event bus initialized")
+    self:log("Orchestrator", "EventBus initialized")
 end
 
 function Orchestrator:init_logger()
@@ -102,7 +89,7 @@ function Orchestrator:init_pack()
         bus = self.bus,
         utils = self.container:resolve("utils"),
     })
-    
+
     self.container:register("pack", function()
         return SagePack
     end)
@@ -114,7 +101,7 @@ function Orchestrator:init_deps()
     self.container:register("deps", function()
         return Deps
     end)
-    self:log("Orchestrator", "Deps registered")
+    self:log("Orchestrator", "SageDep registered")
 end
 
 function Orchestrator:init_api()
@@ -126,7 +113,7 @@ function Orchestrator:init_api()
     self.container:register("api", function()
         return self.api
     end, { lazy = false })
-    self:log("Orchestrator", "Sage API initialized and listening")
+    self:log("Orchestrator", "SageAPI registered")
 end
 
 function Orchestrator:init_ui()
@@ -145,7 +132,7 @@ function Orchestrator:init_ui()
         return self.dashboard
     end, { lazy = false })
 
-    self:log("Orchestrator", "UI initialized")
+    self:log("Orchestrator", "SageUI initialized")
 
     -- Initialize the dashboard with options
     self.dashboard:init(self.container, SageElements, SageIcons, {
@@ -153,7 +140,7 @@ function Orchestrator:init_ui()
         auto_focus = self.opts.auto_focus,
     })
 
-    self:log("Orchestrator", "Dashboard initialized with options")
+    self:log("Orchestrator", "SageDashboard registered")
 end
 
 function Orchestrator:init_loader()
@@ -168,6 +155,15 @@ function Orchestrator:init_loader()
         return self.loader
     end)
     self:log("Orchestrator", "Loader initialized")
+end
+
+fucntion Orchestrator:init_command()
+    if not self.bus or not self.manager or not self.logger or not self.api then
+        error("Bus, Manager, Logger and API must initialize before command")
+    end
+    local Command = require("sage.base.command")
+    Command.init(self.container)
+
 end
 
 function Orchestrator:init_task()
@@ -185,12 +181,12 @@ function Orchestrator:init_task()
         bus = self.bus,
         logger = self.logger,
     })
-    
+
     TaskLifecycle.init({
         bus = self.bus,
         logger = self.logger,
     })
-    
+
     TaskSystem.init({
         bus = self.bus,
         logger = self.logger,
@@ -200,20 +196,20 @@ function Orchestrator:init_task()
     self.container:register("task", function()
         return Task
     end)
-    
+
     self.container:register("task_builder", function()
         return TaskBuilder
     end)
-    
+
     self.container:register("task_lifecycle", function()
         return TaskLifecycle
     end)
-    
+
     self.container:register("task_system", function()
         return TaskSystem
     end)
 
-    self:log("Orchestrator", "Task system initialized with dependencies")
+    self:log("Orchestrator", "TaskSystem registered and initialized")
 end
 
 function Orchestrator:execute_initialization()

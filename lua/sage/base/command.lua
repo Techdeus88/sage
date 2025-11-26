@@ -1,17 +1,18 @@
 local c = {}
 
-local autocmd = vim.api.nvim_create_autocmd
 
 function c:run_commands()
     local dashboard = c.dashboard
     local logger = c.logger
 
-    vim.api.nvim_create_user_command("Sage", function()
+    local command = vim.api.nvim_create_user_command
+
+    command("Sage", function()
         dashboard:open()
     end, { desc = "Open Sage dashboard" })
 
     -- Add Logger command
-    vim.api.nvim_create_user_command("SageLogger", function()
+    command("SageLogger", function()
         if logger then
             logger:toggle_log_window()
         else
@@ -19,14 +20,20 @@ function c:run_commands()
         end
     end, { desc = "Toggle Sage log window" })
 
-    -- Add keymap
-    vim.keymap.set("n", "<leader>ol", function()
+    -- Add keymaps
+    vim.keymap.set("n", "<leader>s", function()
+        if dashboard then
+            dashboard:open()
+        end
+    end, { desc = "Sage Dashboard (open)", silent = true })
+
+    vim.keymap.set("n", "<leader>sl", function()
         if logger then
             logger:toggle_log_window()
         else
             vim.notify("Logger not available", vim.log.levels.ERROR)
         end
-    end, { desc = "Toggle Sage Logger", silent = true })
+    end, { desc = "Sage Logger (toggle)", silent = true })
 end
 
 function c:run_autocmds()
@@ -35,6 +42,8 @@ function c:run_autocmds()
     local bus = c.bus
     local dashboard = c.dashboard
     local loader = c.loader
+
+    local autocmd = vim.api.nvim_create_autocmd
 
     autocmd("VimEnter", {
         group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
