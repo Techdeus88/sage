@@ -39,9 +39,9 @@ function TaskBuilder.create_default_tasks()
             id = "install",
             name = "Install",
             required = true,
-            depends = { "validate" },
+            -- depends = { "validate" },
             condition = function(p)
-                return p and not p.installed
+                return p and p.installed
             end,
             fn = function(p)
                 -- Manager is responsible for actually installing.
@@ -49,6 +49,7 @@ function TaskBuilder.create_default_tasks()
                 if not p or not p.installed then
                     error("Installation did not complete")
                 end
+                -- p:set_installed(true)
                 return true
             end,
         })
@@ -61,7 +62,7 @@ function TaskBuilder.create_default_tasks()
             id = "build",
             name = "Build",
             required = false,
-            depends = { "install" },
+            -- depends = { "install" },
             condition = function(p)
                 return p and p.specs and p.specs.normalize and p.specs.normalize.data.build ~= nil
             end,
@@ -89,9 +90,9 @@ function TaskBuilder.create_default_tasks()
             id = "before_hook",
             name = "Before Hook",
             required = false,
-            depends = { "install" },
+            -- depends = { "install" },
             condition = function(p)
-                return p and p.specs and p.specs.normalize and p.specs.normalize.data.before ~= nil
+                return p and p.enabled and p.specs and p.specs.normalize and p.specs.normalize.data.before ~= nil
             end,
             fn = function(p)
                 if not p or not p.specs or not p.specs.normalize then
@@ -114,10 +115,10 @@ function TaskBuilder.create_default_tasks()
             id = "config",
             name = "Configure",
             required = true, -- CHANGED: Config is now REQUIRED
-            depends = { "install" },
+            -- depends = { "install" },
             condition = function(p)
                 -- Config task runs if pack has a config function
-                return p and p.specs and p.specs.normalize and p.specs.normalize.data.config ~= nil
+                return p and p.enabled and p.specs and p.specs.normalize and p.specs.normalize.data.config ~= nil
             end,
             fn = function(p)
                 if not p or not p.specs or not p.specs.normalize then
@@ -142,9 +143,9 @@ function TaskBuilder.create_default_tasks()
             id = "after_hook",
             name = "After Hook",
             required = false,
-            depends = { "config" },
+            -- depends = { "config" },
             condition = function(p)
-                return p and p.specs and p.specs.normalize and p.specs.normalize.data.after ~= nil
+                return p and p.enabled and p.specs and p.specs.normalize and p.specs.normalize.data.after ~= nil
             end,
             fn = function(p)
                 if not p or not p.specs or not p.specs.normalize then

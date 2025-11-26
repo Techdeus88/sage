@@ -1,4 +1,3 @@
-
 local Pack = {}
 Pack.__index = Pack
 
@@ -84,12 +83,18 @@ function Pack:set_path(path)
 end
 
 function Pack:get_name()
-    return (self.specs.normalize and self.specs.normalize.name) or ""
+    return self.specs.normalize.name
 end
 
 function Pack:set_active(active)
     if active ~= nil then
         self.active = active
+    end
+end
+
+function Pack:set_installed(is_installed)
+    if is_installed ~= nil then
+        self.installed = is_installed
     end
 end
 
@@ -167,7 +172,6 @@ function Pack:set_status(status)
     if curr_status ~= status then
         self.status = status
         if bus then
-            
             bus.emit("pack:status:change", {
                 name = pack_name,
                 prev_status = curr_status,

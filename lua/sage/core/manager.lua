@@ -233,16 +233,16 @@ function Manager:handle_pack_load(data, state, on_complete)
     pack.installed = true
 
     -- Load the pack (packadd) - wrap in schedule to avoid unsafe API call
-    vim.schedule(function()
-        local packadd_ok, packadd_err = pcall(vim.cmd, "packadd " .. pack_name)
-        if not packadd_ok then
-            Utils.safe_notify(
-                string.format("Failed to packadd '%s': %s", pack_name, tostring(packadd_err)),
-                vim.log.levels.WARN
-            )
-            -- Don't fail the pack entirely, just log the warning
-        end
-    end)
+    -- vim.schedule(function()
+    local packadd_ok, packadd_err = pcall(vim.cmd, "packadd " .. pack_name)
+    if not packadd_ok then
+        Utils.safe_notify(
+            string.format("Failed to packadd '%s': %s", pack_name, tostring(packadd_err)),
+            vim.log.levels.WARN
+        )
+        -- Don't fail the pack entirely, just log the warning
+    end
+    -- end)
 
     -- Record timing (time since this pack's load was called)
     local install_duration_ms = (vim.loop.hrtime() - pack_start_time) / 1e6
@@ -267,18 +267,18 @@ function Manager:handle_pack_load(data, state, on_complete)
 
     -- TASK INTEGRATION: Run the validate task now that pack is installed
     -- The task system will automatically run tasks in order starting with validate
-    vim.schedule(function()
-        if pack.lifecycle then
-            -- This will run validate -> install (which checks pack.installed) -> build/hooks/config
-            local ok, err = pack.lifecycle:run_next()
-            if not ok and err ~= "no more tasks" then
-                Utils.safe_notify(
-                    string.format("Pack '%s' task lifecycle error: %s", pack_name, tostring(err)),
-                    vim.log.levels.WARN
-                )
-            end
+    -- vim.schedule(function()
+    if pack.lifecycle then
+        -- This will run validate -> install (which checks pack.installed) -> build/hooks/config
+        local ok, err = pack.lifecycle:run_next()
+        if not ok and err ~= "no more tasks" then
+            Utils.safe_notify(
+                string.format("Pack '%s' task lifecycle error: %s", pack_name, tostring(err)),
+                vim.log.levels.WARN
+            )
         end
-    end)
+    end
+    -- end)
     -- NOTE: Status is NOT set here - the Loaders will manage status transitions:
     -- - "now" stage: "installing" → "loading" → "loaded"
     -- - "later" stage: "installing" → "pending" → "loading" → "loaded"
