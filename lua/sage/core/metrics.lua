@@ -7,13 +7,25 @@ local Metrics = {}
 Metrics.__index = Metrics
 Metrics._singleton = nil
 
+function Metrics:get_singleton(container)
+    if self._singleton == nil then
+        self._singleton = self.new(container)
+    end
+    return self._singleton
+end
+-- ============================================================================
+-- metrics.lua (FIXED & ENHANCED)
+-- ============================================================================
+
+local Metrics = {}
+Metrics.__index = Metrics
+Metrics._singleton = nil
+
 function Metrics.get_singleton(container)
     if Metrics._singleton == nil then
         Metrics._singleton = Metrics.new(container)
     end
-
-    return Metrics._singleton
-end
+    return Metrics
 
 function Metrics.new(container)
     local self = setmetatable({}, Metrics)
