@@ -32,12 +32,9 @@ function M.setup(opts)
     opts = vim.tbl_deep_extend("force", SageDefaultConfig, opts or {})
 
     local orchestrator = setup_orchestrator(opts)
-    -- Extract services
-    local container = orchestrator.container
-    local manager = orchestrator.manager
     -- Run packs safely
     pcall(function()
-        manager:run_packs()
+        orchestrator.manager:run_packs()
     end)
 end
 

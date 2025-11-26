@@ -12,6 +12,7 @@ function Orchestrator.new(opts)
     
     self.temp_logs = {}
     self.first_access = true
+
     self.container = nil
     self.bus = nil
     self.logger = nil
@@ -266,7 +267,7 @@ function Orchestrator:log(source, msg)
         local curr_log_num = vim.tbl_count(self.temp_logs) + 1
         local log = { source = source, msg = msg }
     
-        if self.temp_logs[curr_log_num] == nil then
+        if not self.temp_logs[curr_log_num] then
             self.temp_logs[curr_log_num] = log
         end
         -- vim.api.nvim_echo({ { string.format("[%s] %s", source, msg) } }, false, {})

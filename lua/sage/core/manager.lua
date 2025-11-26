@@ -92,10 +92,10 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         pack:set_status("installing")
 
         vim.schedule(function()
-            Busvent.emit("pack:install:start", {
+            Bus.emit("pack:install:start", {
                 name = name,
                 status = "installing",
-                message = "Installating",
+                message = "Installing",
                 pack = pack,
             })
         end)
@@ -284,13 +284,13 @@ function Manager:load_specs(specs_dir)
     local seen_names = {}
     local pre_path = vim.fn.stdpath("config")
     local specs_path = pre_path .. (specs_dir or "/lua/packs")
-
+    
     if vim.fn.isdirectory(specs_path) == 0 then
         Utils.safe_notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
         return all_specs
     end
 
-    local spec_files = utils.get_lua_files_recursive_opts(specs_path, {
+    local spec_files = Utils.get_lua_files_recursive_opts(specs_path, {
         exclude_dirs = { "configs", "tests", "spec", "node_modules", ".git" },
     })
 
@@ -304,7 +304,7 @@ function Manager:load_specs(specs_dir)
         if success and file_specs and type(file_specs) == "table" then
             for _, spec in ipairs(file_specs) do
                 local src = spec.src or spec[1]
-                local name = spec.name or utils.extract_name(src)
+                local name = spec.name or Utils.extract_name(src)
                 if not seen_names[name] then
                     seen_names[name] = true
                     table.insert(all_specs, spec)
@@ -335,13 +335,13 @@ function Manager:run_packs()
     local Bus = self.bus
     local Dashboard = self.container:resolve("dashboard")
     local Loader = self.container:resolve("loader")
-    
     -- Load specs
     local all_specs = self:load_specs(self.opts.directory)
+    
     if #all_specs == 0 then
         return all_specs
     end
-
+    
     local all_packs = {}
     local delay = 75
     local total_to_create = #all_specs
