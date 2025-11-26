@@ -18,6 +18,7 @@ function Orchestrator.new(opts)
     self.logger = nil
     self.manager = nil
     self.api = nil
+    self.metrics = nil
     self.loader = nil
     self.ui = nil
     self.dashboard = nil
@@ -74,11 +75,12 @@ function Orchestrator:init_logger()
 end
 
 function Orchestrator:init_manager()
-    if not self.logger then
-        error("Logger must be initialized before manager")
+    if not self.logger or not self.bus then
+        error("Logger, Metrics must be initialized before manager")
     end
     local SageManager = require("sage.core.manager")
     self.manager = SageManager.new(self.container, self.opts)
+
     self.container:register("manager", function()
         return self.manager
     end, { lazy = false })
@@ -108,8 +110,8 @@ function Orchestrator:init_deps()
 end
 
 function Orchestrator:init_metrics()
-    if not self.manager then
-        error("Manager must be initialized before api & stats")
+    if not self.bus or not self.logger then
+        error("Bus, Logger must be initialized before metrics")
     end
     local SageMetrics = require("sage.core.metrics")
     self.metrics = SageMetrics.new(self.container, self.manager)
@@ -152,7 +154,7 @@ function Orchestrator:init_loader()
     end
 
     local Loader = require("sage.core.loader")
-    self.loader = Loader.new(self.container)
+    self.loader = Loader.new(self.container, self.opts)
 
     self.container:register("loader", function()
         return self.loader
@@ -227,7 +229,7 @@ function Orchestrator:init_public_api()
         return self.api
     end)
 
-    self:log("Orchestrator", "SageAPI registered")
+    self:log("Orchestrator", "SageAPI (public) registered")
 end
 
 function Orchestrator:execute_initialization()
@@ -245,12 +247,11 @@ function Orchestrator:execute_initialization()
     self:init_pack()
     self:init_deps()
     self:init_manager()
-    self:init_loader()
     self:init_metrics()
+    self:init_loader()
     self:init_ui()
     self:init_command()
     self:init_task()
-
     self:init_public_api()
 
     self.initialized = true

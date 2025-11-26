@@ -48,6 +48,7 @@ Dashboard.rows_by_name = {}
 Dashboard.last_stats = nil
 Dashboard.header_height = 4
 Dashboard.footer_height = 6
+Dashboard.queue = { data = {}, first = 1, last = 0 }
 
 local STATUS_ORDER = {
     not_loaded = 1,
@@ -1181,6 +1182,11 @@ function Dashboard:close()
     -- Unregister event listeners first
     self:unlisten()
 
+    if self.render_timer and not self.render_timer:is_closing() then
+        self.render_timer:close() -- ← REQUIRED!
+        self.render_timer = nil
+    end
+
     -- Stop any pending timers
     if self._footer_timer then
         vim.fn.timer_stop(self._footer_timer)
@@ -1208,6 +1214,7 @@ function Dashboard:close()
     self.footer_buf = nil
     self.rows = {}
     self.rows_by_name = {}
+    self.is_open = false
 end
 
 -- Event Handlers
@@ -1246,8 +1253,8 @@ function Dashboard:listen()
         if not row then
             return
         end
-        row.status:update(data.status)
-        row.status_two:update(data.status)
+        -- row.status:update(data.status)
+        -- row.status_two:update(data.status)
         row.message:update(data.message)
         self:update_line(row)
     end)
@@ -1257,11 +1264,30 @@ function Dashboard:listen()
         if not row then
             return
         end
-        row.status:update(data.status)
-        row.status_two:update(data.status)
+        -- row.status:update(data.status)
+        -- row.status_two:update(data.status)
         row.message:update(data.message)
         row.install_duration:update(data.install_duration or 0)
         self:update_line(row)
+    end)
+
+    register("pack:load:start", function(data)
+        local row = self:find(data.name)
+        if not row then
+            return
+        end
+        row.message:update(data.message)
+        self:update_line(row)
+    end)
+
+    register("pack:load:complete", function(data)
+        local row = self:find(data.name)
+        if not row then
+            return
+        end
+        row.message:update(data.message)
+        self:update_line(row)
+        self:resort_rows()
     end)
 
     register("pack:config:start", function(data)
@@ -1269,8 +1295,8 @@ function Dashboard:listen()
         if not row then
             return
         end
-        row.status:update(data.status)
-        row.status_two:update(data.status)
+        -- row.status:update(data.status)
+        -- row.status_two:update(data.status)
         row.message:update(data.message)
         self:update_line(row)
     end)
@@ -1280,12 +1306,11 @@ function Dashboard:listen()
         if not row then
             return
         end
-        row.status:update(data.status)
-        row.status_two:update(data.status)
+        -- row.status:update(data.status)
+        -- row.status_two:update(data.status)
         row.message:update(data.message)
         row.config_duration:update(data.config_duration or 0)
         self:update_line(row)
-        self:resort_rows()
     end)
 
     -- register("pack:lazy", function(data)
@@ -1329,12 +1354,12 @@ function Dashboard:listen()
 
     register("pack:status:change", function(data)
         local row = self:find(data.name)
-        if not row then
+        if not row or data.new_status == "created" then
             return
         end
         row.status:update(data.new_status)
         row.status_two:update(data.new_status)
-        row.message:update(string.format("Changed %s to %s", data.prev_status, data.new_status))
+        row.message:update(string.format("%s", data.new_status:upper()))
         self:update_line(row)
     end)
 

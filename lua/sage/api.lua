@@ -32,4 +32,23 @@ function API:get_event(event)
     end
 end
 
+function API:get_stats()
+    local Packs = self.manager:get_packs()
+
+    self.stats["counted"] = 0
+    self.stats["loaded"] = 0
+    self.stats["failed"] = 0
+
+    for name, pack in pairs(Packs) do
+        self.stats["counted"] = self.stats["counted"] + 1
+        if not pack.loaded then
+            self.stats["failed"] = self.stats["failed"] + 1
+        else
+            self.stats["loaded"] = self.stats["loaded"] + 1
+        end
+        self.stats["times"][name] = pack.times
+    end
+    return self.stats
+end
+
 return API

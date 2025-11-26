@@ -169,14 +169,20 @@ end
 function Pack:set_status(status)
     local pack_name = self:get_name()
     local curr_status = self.status
+    local delay_status = 300
+
     if curr_status ~= status then
         self.status = status
         if bus then
-            bus.emit("pack:status:change", {
-                name = pack_name,
-                prev_status = curr_status,
-                new_status = status,
-            })
+            vim.schedule(function()
+                vim.defer_fn(function()
+                    bus.emit("pack:status:change", {
+                        name = pack_name,
+                        prev_status = curr_status,
+                        new_status = status,
+                    })
+                end, delay_status)
+            end)
         end
         return true, self.status
     end
