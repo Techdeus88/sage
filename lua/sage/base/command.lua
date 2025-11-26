@@ -1,6 +1,5 @@
 local c = {}
 
-
 function c:run_commands()
     local dashboard = c.dashboard
     local logger = c.logger
@@ -37,7 +36,7 @@ function c:run_commands()
 end
 
 function c:run_autocmds()
-    local api = c.api
+    local api = c.metrics
     local manager = c.manager
     local bus = c.bus
     local dashboard = c.dashboard
@@ -53,7 +52,7 @@ function c:run_autocmds()
             local start_time = _G.Sage.start
             local time_duration = string.format("%.2f", (vim.loop.hrtime() - start_time) / 1e6)
             api:track_event("vimenter", time_duration)
-        end
+        end,
     })
 
     autocmd("UiEnter", {
@@ -64,7 +63,7 @@ function c:run_autocmds()
             local start_time = _G.Sage.start
             local time_duration = string.format("%.2f", (vim.loop.hrtime() - start_time) / 1e6)
             api:track_event("uienter", time_duration)
-        end
+        end,
     })
 
     autocmd("PackChangedPre", {
@@ -123,7 +122,6 @@ function c:run_autocmds()
                 vim.notify(string.format("✓ Installed %s", n_spec.name), vim.log.levels.INFO)
                 -- NOTE: Build handling moved to install_activate_batch for consistency
                 -- Manual builds should be run separately or as part of pack config
-
             elseif kind == "update" then
                 Pack:set_status("updated")
                 vim.notify(string.format("✓ Updated %s", n_spec.name), vim.log.levels.INFO)
@@ -132,7 +130,6 @@ function c:run_autocmds()
                     status = "updated",
                     pack = Pack,
                 })
-
             elseif kind == "delete" then
                 Pack:set_status("deleted")
                 vim.notify(string.format("✓ Deleted %s", n_spec.name), vim.log.levels.INFO)
@@ -145,7 +142,6 @@ function c:run_autocmds()
         end,
     })
 
-
     autocmd("VimLeavePre", {
         group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
         desc = "Cleanup all loaders and dashboard before exit",
@@ -156,13 +152,11 @@ function c:run_autocmds()
                 end)
             end
 
-
             if dashboard and dashboard.close then
                 pcall(function()
                     dashboard:close()
                 end)
             end
-
 
             if bus and bus.clear then
                 pcall(function()
@@ -177,7 +171,7 @@ end
 
 function c.init(container)
     c.container = container
-    c.api = c.container:resolve("api")
+    c.api = c.container:resolve("metrics")
     c.bus = c.container:resolve("bus")
     c.dashboard = c.container:resolve("dashboard")
     c.loader = c.container:resolve("loader")

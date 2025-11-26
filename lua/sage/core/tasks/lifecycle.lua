@@ -81,8 +81,10 @@ function Lifecycle:run_next()
                         })
                     end
                     if logger then
-                        logger:info("Lifecycle", 
-                            string.format("Lifecycle complete for pack '%s'", self.pack.specs.normalize.name))
+                        logger:info(
+                            "Lifecycle",
+                            string.format("Lifecycle complete for pack '%s'", self.pack.specs.normalize.name)
+                        )
                     end
                 end)
             end
@@ -165,3 +167,4 @@ function Lifecycle:get_progress()
 end
 
 return Lifecycle
+

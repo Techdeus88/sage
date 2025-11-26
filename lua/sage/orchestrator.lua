@@ -107,16 +107,16 @@ function Orchestrator:init_deps()
     self:log("Orchestrator", "SageDep registered")
 end
 
-function Orchestrator:init_api()
+function Orchestrator:init_metrics()
     if not self.manager then
         error("Manager must be initialized before api & stats")
     end
-    local SageApi = require("sage.api")
-    self.api = SageApi.new(self.container)
-    self.container:register("api", function()
-        return self.api
-    end)
-    self:log("Orchestrator", "SageAPI registered")
+    local SageMetrics = require("sage.core.metrics")
+    self.metrics = SageMetrics.new(self.container, self.manager)
+    self.container:register("metrics", function()
+        return self.metrics
+    end, { lazy = false })
+    self:log("Orchestrator", "SageMetrics registered")
 end
 
 function Orchestrator:init_ui()
@@ -161,8 +161,8 @@ function Orchestrator:init_loader()
 end
 
 function Orchestrator:init_command()
-    if not self.bus or not self.manager or not self.logger or not self.api then
-        error("Bus, Manager, Logger and API must initialize before command")
+    if not self.bus or not self.manager or not self.logger or not self.metrics then
+        error("Bus, Manager, Logger and Metrics must initialize before command")
     end
     require("sage.base.command").init(self.container)
 
@@ -231,7 +231,7 @@ function Orchestrator:execute_initialization()
     self:init_deps()
     self:init_manager()
     self:init_loader()
-    self:init_api()
+    self:init_metrics()
     self:init_ui()
     self:init_command()
     self:init_task()

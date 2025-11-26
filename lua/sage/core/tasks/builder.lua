@@ -27,6 +27,9 @@ function TaskBuilder.create_default_tasks()
                 if not spec.src or spec.src == "" then
                     error("Pack source is required")
                 end
+                if not spec.config or spec.config == "" then
+                    error("Pack config is required")
+                end
                 return true
             end,
         })
@@ -113,8 +116,8 @@ function TaskBuilder.create_default_tasks()
         Task.new({
             id = "config",
             name = "Configure",
-            required = false,
-            depends = { "install", "before_hook" },
+            required = true,
+            depends = { "install" },
             condition = function(p)
                 return p and p.specs and p.specs.normalize and p.specs.normalize.data.config ~= nil
             end,

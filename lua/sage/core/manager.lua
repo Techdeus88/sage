@@ -265,6 +265,20 @@ function Manager:handle_pack_load(data, state, on_complete)
         })
     end)
 
+    -- TASK INTEGRATION: Run the validate task now that pack is installed
+    -- The task system will automatically run tasks in order starting with validate
+    vim.schedule(function()
+        if pack.lifecycle then
+            -- This will run validate -> install (which checks pack.installed) -> build/hooks/config
+            local ok, err = pack.lifecycle:run_next()
+            if not ok and err ~= "no more tasks" then
+                Utils.safe_notify(
+                    string.format("Pack '%s' task lifecycle error: %s", pack_name, tostring(err)),
+                    vim.log.levels.WARN
+                )
+            end
+        end
+    end)
     -- NOTE: Status is NOT set here - the Loaders will manage status transitions:
     -- - "now" stage: "installing" → "loading" → "loaded"
     -- - "later" stage: "installing" → "pending" → "loading" → "loaded"
@@ -464,15 +478,15 @@ function Manager:create_all_packs(specs)
             self.packs[name] = pack
             table.insert(packs, pack)
             vim.schedule(function()
-              vim.defer_fn(function()
-                  self.bus.emit("pack:created", {
-                    name = name,
-                    status = pack:get_status(),
-                    stage = pack:get_stage(),
-                    message = "Created",
-                    pack = pack,
-                  })
-              end, delay)
+                vim.defer_fn(function()
+                    self.bus.emit("pack:created", {
+                        name = name,
+                        status = pack:get_status(),
+                        stage = pack:get_stage(),
+                        message = "Created",
+                        pack = pack,
+                    })
+                end, delay)
             end)
         end
     end
@@ -737,14 +751,16 @@ function Manager:cleanup()
 
     Utils.safe_notify("Starting manager cleanup...", vim.log.levels.DEBUG)
 
-    -- Resolve loader once
+    -- Resolve dependencies once
     local Loader = self.container:resolve("loader")
+    local TaskSystem = self.container:resolve("task_system")
 
     -- Track cleanup statistics
     local stats = {
         packs_cleaned = 0,
         loaders_closed = 0,
         timers_closed = 0,
+        tasks_unwired = 0,
         errors = {},
     }
 
@@ -763,6 +779,12 @@ function Manager:cleanup()
     -- 2. Clean up individual packs
     for name, pack in pairs(self.packs) do
         local pack_ok, pack_err = pcall(function()
+            -- Unwire task system listeners
+            if TaskSystem and type(TaskSystem.unwire_pack) == "function" then
+                TaskSystem.unwire_pack(pack)
+                stats.tasks_unwired = stats.tasks_unwired + 1
+            end
+
             -- Call pack-specific cleanup if available
             if pack.cleanup and type(pack.cleanup) == "function" then
                 pack:cleanup()
@@ -785,8 +807,11 @@ function Manager:cleanup()
 
             -- Clear pack references
             pack.installed = nil
+            pack.loaded = nil
             pack.times = nil
             pack._install_stage = nil
+            pack.lifecycle = nil
+            pack._task_event_listeners = nil
 
             stats.packs_cleaned = stats.packs_cleaned + 1
         end)
@@ -830,8 +855,9 @@ function Manager:cleanup()
     else
         Utils.safe_notify(
             string.format(
-                "Manager cleanup successful: %d packs, %d timers (%.2fms)",
+                "Manager cleanup successful: %d packs, %d tasks unwired, %d timers (%.2fms)",
                 stats.packs_cleaned,
+                stats.tasks_unwired,
                 stats.timers_closed,
                 cleanup_duration
             ),

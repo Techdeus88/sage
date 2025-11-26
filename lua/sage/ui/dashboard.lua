@@ -530,10 +530,10 @@ function Dashboard:render_footer()
     local win_width = vim.api.nvim_win_get_width(self.footer_win)
     local stats = self:get_stats()
 
-    local ok, sage_api = pcall(require, "sage.api")
+    local ok, sage_metrics = pcall(require, "sage.metrics")
     local total_duration = 0
-    if ok and sage_api and type(sage_api.get_event) == "function" then
-        total_duration = sage_api:get_event("uienter") or 0
+    if ok and sage_metrics and type(sage_metrics.get_event) == "function" then
+        total_duration = sage_metrics:get_event("uienter") or 0
     end
 
     local progress_pct = stats.total > 0 and ((stats.loaded + stats.lazy + stats.disabled) / stats.total * 100) or 0
