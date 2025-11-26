@@ -72,11 +72,12 @@ function TaskBuilder.create_default_tasks()
                     error("Pack spec is invalid")
                 end
 
-                local build = p.specs.normalize.data.build
-                if type(build) == "string" then
-                    vim.cmd(build)
-                elseif type(build) == "function" then
-                    build()
+                local commands = require("sage.commands")
+                local spec = p.specs.normalize
+                local build = spec.data.build
+
+                if build then
+                    commands.handle_build(spec)
                 end
                 return true
             end,

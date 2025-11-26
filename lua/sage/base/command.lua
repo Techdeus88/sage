@@ -33,6 +33,8 @@ function c:run_commands()
             vim.notify("Logger not available", vim.log.levels.ERROR)
         end
     end, { desc = "Sage Logger (toggle)", silent = true })
+    vim.keymap.set("n", "<leader>s", "<cmd>SageOpen<cr>", { desc = "Open Sage dashboard" })
+    vim.keymap.set("n", "<leader>st", "<cmd>SageToggle<cr>", { desc = "Toggle Sage dashboard" })
 end
 
 function c:run_autocmds()
@@ -41,6 +43,7 @@ function c:run_autocmds()
     local bus = c.bus
     local dashboard = c.dashboard
     local loader = c.loader
+    local commands = require("sage.commands")
 
     local autocmd = vim.api.nvim_create_autocmd
 
@@ -102,8 +105,25 @@ function c:run_autocmds()
         end,
     })
 
+    local group = vim.api.nvim_create_augroup("Sage", { clear = true })
+
     autocmd("PackChanged", {
-        group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
+        callback = function(args)
+            local kind = args.data.kind ---@type string
+
+            if kind == "install" or kind == "update" then
+                local spec = args.data.spec ---@type UnPack.Spec
+                local name = spec.name
+                local Pack = manager.packs[name]
+                Pack.set_path(args.data.path)
+
+                commands.build({ spec })
+            end
+        end,
+        group = group,
+    })
+
+    autocmd("PackChanged", {
         callback = function(ev)
             local kind = ev.data.kind
             local spec = ev.data.spec
@@ -117,12 +137,7 @@ function c:run_autocmds()
 
             local n_spec = Pack.specs.normalize
 
-            if kind == "install" then
-                Pack:set_path(pack_path)
-                vim.notify(string.format("✓ Installed %s", n_spec.name), vim.log.levels.INFO)
-                -- NOTE: Build handling moved to install_activate_batch for consistency
-                -- Manual builds should be run separately or as part of pack config
-            elseif kind == "update" then
+            if kind == "update" then
                 Pack:set_status("updated")
                 vim.notify(string.format("✓ Updated %s", n_spec.name), vim.log.levels.INFO)
                 bus.emit("pack:updated", {
@@ -130,7 +145,8 @@ function c:run_autocmds()
                     status = "updated",
                     pack = Pack,
                 })
-            elseif kind == "delete" then
+            end
+            if kind == "delete" then
                 Pack:set_status("deleted")
                 vim.notify(string.format("✓ Deleted %s", n_spec.name), vim.log.levels.INFO)
                 bus.emit("pack:deleted", {
@@ -140,6 +156,7 @@ function c:run_autocmds()
                 })
             end
         end,
+        group = group,
     })
 
     autocmd("VimLeavePre", {

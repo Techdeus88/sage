@@ -154,7 +154,7 @@ function Manager:create_timeout_timer(state, on_complete)
     local Utils = self.utils
 
     local timer = vim.loop.new_timer()
-    local timeout_ms = self.opts.install_timeout -- 60 seconds default
+    local timeout_ms = self.opts.install_timeout or 30000 -- 30 seconds default
 
     timer:start(
         timeout_ms,
@@ -205,11 +205,67 @@ function Manager:create_timeout_timer(state, on_complete)
 
     return timer
 end
+-- ============================================================================
+-- Create all packs from specs (no artificial delays)
+-- ============================================================================
+function Manager:create_all_packs(specs)
+    local Utils = self.utils
+    local Bus = self.bus
 
--- ==========================================================================
+    if #specs == 0 then
+        Utils.safe_notify("No pack specs to create", vim.log.levels.INFO)
+        return {}
+    end
+
+    local packs = {}
+    local seen_names = {}
+    local create_start = vim.loop.hrtime()
+
+    -- Create all packs synchronously (no artificial delays)
+    for _, spec in ipairs(specs) do
+        local pack_create_start = vim.loop.hrtime()
+
+        -- Create the pack
+        local pack = self:create_pack(spec)
+        local name = pack.specs.normalize.name
+
+        -- Check for duplicates
+        if seen_names[name] then
+            Utils.safe_notify(string.format("Duplicate pack '%s' found (skipping)", name), vim.log.levels.WARN)
+            goto continue
+        end
+
+        -- Mark as seen and created
+        seen_names[name] = true
+        pack:set_status("created")
+
+        -- Track creation time
+        pack.times = pack.times or {}
+        pack.times.create_duration = string.format("%.2f", (vim.loop.hrtime() - pack_create_start) / 1e6)
+
+        -- Store pack
+        self.packs[name] = pack
+        table.insert(packs, pack)
+
+        ::continue::
+    end
+
+    local total_create_time = (vim.loop.hrtime() - create_start) / 1e6
+
+    -- Emit single batch creation event
+    vim.schedule(function()
+        Bus.emit("pack:all_created", {
+            num_packs = #packs,
+            packs = packs,
+            create_duration = string.format("%.2f", total_create_time),
+        })
+    end)
+
+    return packs
+end
+
 -- Handle individual pack load callback
--- ==========================================================================
-function Manager:handle_pack_load(data, state, on_complete, delay_install_activate)
+function Manager:handle_pack_load(data, state, on_complete)
     local Utils = self.utils
     local Bus = self.bus
 
@@ -229,10 +285,8 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
         return
     end
 
-    -- Mark as installed (if the directory exists)
-    if vim.fn.isdirectory(data.path) == 0 then
-        pack:set_installed(true)
-    end
+    -- Mark as installed
+    pack.installed = true
 
     -- Load the pack (packadd) - wrap in schedule to avoid unsafe API call
     vim.schedule(function()
@@ -255,18 +309,16 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
     pack:set_active(data)
     pack:set_path(data.path)
 
-    -- Emit install finish event
+    -- Emit install finish event (this triggers task lifecycle via system.lua listener)
     vim.schedule(function()
-        vim.defer_fn(function()
-            Bus.emit("pack:install:finish", {
-                name = pack_name,
-                status = "installed",
-                message = "Installation complete",
-                install_duration = pack.times.install_duration,
-                pack = pack,
-                stage = pack._install_stage,
-            })
-        end, delay_install_activate + 75)
+        Bus.emit("pack:install:finish", {
+            name = pack_name,
+            status = "installed",
+            message = "Installation complete",
+            install_duration = pack.times.install_duration,
+            pack = pack,
+            stage = pack._install_stage,
+        })
     end)
 
     -- TASK INTEGRATION: Run the validate task now that pack is installed
@@ -283,6 +335,7 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
             end
         end
     end)
+
     -- NOTE: Status is NOT set here - the Loaders will manage status transitions:
     -- - "now" stage: "installing" → "loading" → "loaded"
     -- - "later" stage: "installing" → "pending" → "loading" → "loaded"
@@ -296,67 +349,7 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
     self:check_installation_complete(state, on_complete)
 end
 
--- ==========================================================================
--- Handle catastrophic installation failure
--- ==========================================================================
-function Manager:handle_install_failure(err, all_packs, state, on_complete, delay_install_activate)
-    local Utils = self.utils
-    local Bus = self.bus
-
-    -- Close timer if exists
-    if state.timer and not state.timer:is_closing() then
-        pcall(function()
-            state.timer:close()
-        end)
-        state.timer = nil
-    end
-
-    -- Log error
-    vim.schedule(function()
-        Utils.safe_notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
-    end)
-
-    -- Mark all packs as failed
-    for _, pack in ipairs(all_packs) do
-        pack:set_installed(false)
-        pack:set_status("failed")
-
-        local pack_name = pack.specs.normalize.name
-        table.insert(state.failed, pack_name)
-    end
-
-    -- Emit failure event
-    vim.schedule(function()
-        vim.defer_fn(function()
-            Bus.emit("pack:install:failed", {
-                count = #all_packs,
-                message = "Batch installation failed",
-                error = tostring(err),
-                failed_packs = state.failed,
-            })
-        end, delay_install_activate + 100)
-    end)
-
-    -- Calculate elapsed time
-    local elapsed_ms = (vim.loop.hrtime() - state.start_time) / 1e6
-
-    -- Call completion callback with error
-    if on_complete then
-        vim.schedule(function()
-            on_complete(false, {
-                error = tostring(err),
-                failed_count = #all_packs,
-                failed_packs = state.failed,
-                elapsed_ms = elapsed_ms,
-                total_packs = state.total,
-            })
-        end)
-    end
-end
-
--- ==========================================================================
 -- Check if installation is complete and trigger callback
--- ==========================================================================
 function Manager:check_installation_complete(state, on_complete)
     if state.completed >= state.total then
         -- Close timeout timer
@@ -385,6 +378,60 @@ function Manager:check_installation_complete(state, on_complete)
                 on_complete(true, result)
             end)
         end
+    end
+end
+
+-- Handle catastrophic installation failure
+function Manager:handle_install_failure(err, all_packs, state, on_complete)
+    local Utils = self.utils
+    local Bus = self.bus
+
+    -- Close timer if exists
+    if state.timer and not state.timer:is_closing() then
+        pcall(function()
+            state.timer:close()
+        end)
+        state.timer = nil
+    end
+
+    -- Log error
+    vim.schedule(function()
+        Utils.safe_notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
+    end)
+
+    -- Mark all packs as failed
+    for _, pack in ipairs(all_packs) do
+        pack.installed = false
+        pack:set_status("failed")
+
+        local pack_name = pack.specs.normalize.name
+        table.insert(state.failed, pack_name)
+    end
+
+    -- Emit failure event
+    vim.schedule(function()
+        Bus.emit("pack:install:failed", {
+            count = #all_packs,
+            message = "Batch installation failed",
+            error = tostring(err),
+            failed_packs = state.failed,
+        })
+    end)
+
+    -- Calculate elapsed time
+    local elapsed_ms = (vim.loop.hrtime() - state.start_time) / 1e6
+
+    -- Call completion callback with error
+    if on_complete then
+        vim.schedule(function()
+            on_complete(false, {
+                error = tostring(err),
+                failed_count = #all_packs,
+                failed_packs = state.failed,
+                elapsed_ms = elapsed_ms,
+                total_packs = state.total,
+            })
+        end)
     end
 end
 
@@ -467,45 +514,59 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
     return true
 end
-
 -- ============================================================================
--- Create all packs
+-- Create all packs from specs (no artificial delays)
 -- ============================================================================
 function Manager:create_all_packs(specs)
+    local Utils = self.utils
+    local Bus = self.bus
+
+    if #specs == 0 then
+        Utils.safe_notify("No pack specs to create", vim.log.levels.INFO)
+        return {}
+    end
+
     local packs = {}
     local seen_names = {}
-    local delay_create = 50
+    local create_start = vim.loop.hrtime()
 
-    for i, spec in ipairs(specs) do
+    -- Create all packs synchronously (no artificial delays)
+    for _, spec in ipairs(specs) do
+        local pack_create_start = vim.loop.hrtime()
+
+        -- Create the pack
         local pack = self:create_pack(spec)
         local name = pack.specs.normalize.name
 
+        -- Check for duplicates
         if seen_names[name] then
-            Utils.safe_notify(string.format("Duplicate pack: %s (skipping)", name), vim.log.levels.WARN)
-        else
-            seen_names[name] = true
-            pack:set_status("created")
-            self.packs[name] = pack
-            local r_pack = {
-                name = name,
-                status = pack:get_status(),
-                stage = pack:get_stage(),
-                message = "Created",
-                pack = pack,
-            }
-            table.insert(packs, pack)
-            vim.schedule(function()
-                vim.defer_fn(function()
-                    self.bus.emit("pack:created", r_pack)
-                end, delay_create * i)
-            end)
+            Utils.safe_notify(string.format("Duplicate pack '%s' found (skipping)", name), vim.log.levels.WARN)
+            goto continue
         end
+
+        -- Mark as seen and created
+        seen_names[name] = true
+        pack:set_status("created")
+
+        -- Track creation time
+        pack.times = pack.times or {}
+        pack.times.create_duration = string.format("%.2f", (vim.loop.hrtime() - pack_create_start) / 1e6)
+
+        -- Store pack
+        self.packs[name] = pack
+        table.insert(packs, pack)
+
+        ::continue::
     end
 
+    local total_create_time = (vim.loop.hrtime() - create_start) / 1e6
+
+    -- Emit single batch creation event
     vim.schedule(function()
-        self.bus.emit("pack:all_created", {
+        Bus.emit("pack:all_created", {
             num_packs = #packs,
             packs = packs,
+            create_duration = string.format("%.2f", total_create_time),
         })
     end)
 
@@ -518,8 +579,7 @@ end
 function Manager:process_stages(by_stage)
     local Utils = self.utils
     local Bus = self.bus
-    local Loader = self.loader
-    local Metrics = self.container:resolve("metrics")
+    local Loader = self.container:resolve("loader")
 
     local stages_start = vim.loop.hrtime()
     local stage_results = {}
@@ -597,9 +657,6 @@ function Manager:process_stages(by_stage)
     local disabled_ok = process_stage("disabled", by_stage.disabled)
 
     local total_duration = (vim.loop.hrtime() - stages_start) / 1e6
-
-    Metrics:track_event("stages:totalduration", total_duration)
-
     local all_success = now_ok and lazy_ok and later_ok and disabled_ok
 
     -- Emit completion event with detailed results
@@ -622,16 +679,12 @@ function Manager:process_stages(by_stage)
 end
 
 -- ============================================================================
--- Main Entry Point
+-- Main Entry Point: run_packs method (REFACTORED)
 -- ============================================================================
 function Manager:run_packs()
     local Utils = self.utils
     local Bus = self.bus
-
-    self.loader = self.container:resolve("loader")
-
     local Dashboard = self.container:resolve("dashboard")
-    local Metrics = self.container:resolve("metrics")
 
     local run_start = vim.loop.hrtime()
 
@@ -733,13 +786,12 @@ function Manager:run_packs()
         local stages_ok = self:process_stages(by_stage)
 
         local total_elapsed = (vim.loop.hrtime() - run_start) / 1e6
-        local total_duration = string.format("%.2f", total_elapsed)
-        Metrics:track_event("installs:totalduration", total_duration)
+
         -- Emit final completion event
         vim.schedule(function()
             Bus.emit("pack:run_complete", {
                 success = stages_ok,
-                total_duration = total_duration,
+                total_duration = string.format("%.2f", total_elapsed),
                 installed_count = result.installed_count,
                 failed_count = result.failed_count,
                 failed_packs = result.failed_packs,
@@ -762,7 +814,7 @@ function Manager:run_packs()
 end
 
 -- ============================================================================
--- Cleanup on shutdown
+-- Cleanup on shutdown (IMPROVED)
 -- ============================================================================
 function Manager:cleanup()
     local Utils = self.utils
@@ -978,7 +1030,7 @@ function Manager:get_cleanup_stats()
             name = name,
             status = pack:get_status(),
             stage = pack:get_stage(),
-            installed = pack:get_installed(),
+            installed = pack.installed or false,
             has_timers = false,
             active_timers = 0,
         }

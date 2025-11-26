@@ -28,10 +28,12 @@ local function setup_orchestrator(opts)
 end
 
 function M.setup(opts)
-    local SageDefaultConfig = require("sage.base.config")
-    opts = vim.tbl_deep_extend("force", SageDefaultConfig, opts or {})
+    local commands = require("sage.commands")
+    local config = require("sage.config")
 
-    local orchestrator = setup_orchestrator(opts)
+    config.setup(opts)
+
+    local orchestrator = setup_orchestrator(config.opts)
     -- Run packs safely
     pcall(function()
         orchestrator.manager:run_packs()

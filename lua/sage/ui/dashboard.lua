@@ -1610,6 +1610,29 @@ function Dashboard:init(container, elements, icons, opts)
     -- ========================================================================
     -- USER COMMANDS (Don't create :Sage here to avoid circular dependency)
     -- ========================================================================
+
+    vim.api.nvim_create_user_command("SageOpen", function()
+        local manager = require("sage.manager")
+        local dashboard = manager.container:resolve("dashboard")
+        dashboard:open()
+    end, { desc = "Open Sage dashboard" })
+
+    vim.api.nvim_create_user_command("SageClose", function()
+        local manager = require("sage.manager")
+        local dashboard = manager.container:resolve("dashboard")
+        dashboard:close()
+    end, { desc = "Close Sage dashboard" })
+
+    vim.api.nvim_create_user_command("SageToggle", function()
+        local manager = require("sage.manager")
+        local dashboard = manager.container:resolve("dashboard")
+        if dashboard.is_open then
+            dashboard:close()
+        else
+            dashboard:open()
+        end
+    end, { desc = "Toggle Sage dashboard" })
+
     vim.api.nvim_create_user_command("SageReload", function()
         require("sage.core.loader"):close_all()
         Dashboard:close()
