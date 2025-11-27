@@ -782,17 +782,19 @@ function Manager:create_all_packs(specs)
         self.packs[name] = pack
         table.insert(packs, pack)
 
-        vim.schedule(function()
-            vim.defer_fn(function()
+        
+        vim.defer_fn(function()
+                local Logger = self.container:resolve("logger")
                 Bus.emit("pack:created", {
-                    name = name,
-                    status = pack:get_status(),
-                    stage = pack:get_stage(),
-                    message = "Created",
-                    pack = pack,
-                })
-            end, 100 * i)
-        end)
+                        name = name,
+                        status = pack:get_status(),
+                        stage = pack:get_stage(),
+                        message = "Created",
+                        pack = pack,
+                    })
+                Logger:debug("Created Event " .. name)
+            end, 50 * i)
+        
 
         ::continue::
     end
@@ -924,7 +926,7 @@ function Manager:run_packs()
     local Bus = self.bus
     local Dashboard = self.container:resolve("dashboard")
     local DashboardManager = self.container:resolve("dashboard_manager")
-
+    local Logger = self.container:resolve("logger")
     local run_start = vim.loop.hrtime()
 
     -- Load specs from directory
@@ -941,12 +943,19 @@ function Manager:run_packs()
     )
 
     -- NEW: build context + let the strategy decide
-    local ctx
-    if DashboardManager then
-        ctx = DashboardManager:build_context(all_specs, self.packs)
-        DashboardManager:show_immediately(ctx)    
-    end    
+   -- local ctx
+    -- if DashboardManager then
+       -- ctx = DashboardManager:build_context(all_specs, self.packs)
+       -- DashboardManager:show_delayed(ctx, 500)    
+    -- end    
     -- Create all packs (no artificial delays)
+    local show_dashboard = should_show_dashboard(all_specs, self.opts)
+    if show_dashboard then
+      vim.defer_fn(function()
+        Dashboard:open()
+      end, 500)
+    end
+    
     local all_packs = self:create_all_packs(all_specs)
 
     if #all_packs == 0 then
@@ -974,6 +983,9 @@ function Manager:run_packs()
         vim.log.levels.INFO
     )
 
+    Logger:debug(vim.inspect(all_packs))
+    Logger:debug(" Total Packs: " .. #all_packs)
+ 
     -- Start batch installation with callback
     -- The callback will fire when ALL packs have finished installing
     local install_ok = self:install_activate_batch_v2(by_stage, function(success, result)
@@ -999,6 +1011,7 @@ function Manager:run_packs()
             end)
             return
         end
+        Logger:debug("install success")
 
         -- Show summary if there were any failures
         if result.failed_count and result.failed_count > 0 then
@@ -1021,8 +1034,8 @@ function Manager:run_packs()
         -- NOW process stages (only after all installs are done)
         local stages_ok = self:process_stages(by_stage)
 
-        local total_elapsed = (vim.loop.hrtime() - run_start) / 1e6
 
+        local total_elapsed = (vim.loop.hrtime() - run_start) / 1e6
         -- Emit final completion event
         vim.schedule(function()
             Bus.emit("pack:run_complete", {
