@@ -63,6 +63,26 @@ local function get_package_names()
     return package_names
 end
 
+---@param spec_names string[]
+local function handle_delete(spec_names)
+    vim.schedule(function()
+        local delete_ok, _ = pcall(vim.pack.del, spec_names)
+        if not delete_ok then
+            return
+        end
+    end)
+end
+
+---@param spec_names string[]
+local function handle_update(spec_names, opts)
+    vim.schedule(function()
+        local update_ok, _ = pcall(vim.pack.update, spec_names, { force = opts.force })
+        if not update_ok then
+            return
+        end
+    end)
+end
+
 local function handle_build(spec)
     if
         type(spec.src) ~= "string"
@@ -99,6 +119,27 @@ M.build = function(specs)
     end
     for _, spec in ipairs(specs) do
         handle_build(spec)
+    end
+end
+
+---@param spec_names string[]
+M.update = function(spec_names, all)
+    if not all then
+        for _, spec_name in ipairs(spec_names) do
+            handle_update({ spec_name })
+        end
+    else
+        handle_update(spec_names)
+    end
+end
+
+M.delete = function(spec_names, all)
+    if not all then
+        for _, spec_name in ipairs(spec_names) do
+            handle_delete({ spec_name })
+        end
+    else
+        handle_delete(spec_names)
     end
 end
 
