@@ -1221,7 +1221,6 @@ end
 -- ============================================================================
 function Dashboard:listen()
     local Bus = self.bus
-    local Manager = self.manager
     -- Store listener IDs for cleanup
     self.event_listeners = {}
 
@@ -1236,6 +1235,10 @@ function Dashboard:listen()
             end
         end)
         table.insert(self.event_listeners, { event = event_name, id = id })
+    end
+
+    local function get_manager()
+        return self.container:resolve("manager")
     end
 
     register("pack:created", function(data)
@@ -1364,6 +1367,7 @@ function Dashboard:listen()
     end)
 
     register("pack:task:start", function(data)
+        local Manager = get_manager()  
         local row = self:find(data.name)
         if not row then
             return
