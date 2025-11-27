@@ -207,7 +207,7 @@ function Manager:create_timeout_timer(state, on_complete)
 end
 
 -- Handle individual pack load callback
-function handle_pack_load(data, state, on_complete, delay_install_activate)
+function Manager:handle_pack_load(data, state, on_complete, delay_install_activate)
     local Utils = self.utils
     local Bus = self.bus
 
