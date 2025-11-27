@@ -206,14 +206,12 @@ function Manager:create_timeout_timer(state, on_complete)
     return timer
 end
 
--- FIX 1: Remove delay_install_activate parameter (unused and causes confusion)
 function Manager:handle_pack_load(data, state, on_complete)
     local Utils = self.utils
     local Bus = self.bus
 
     local pack_name = data.spec.name
     local pack = self.packs[pack_name]
-    local pack_start_time = vim.loop.hrtime()
 
     -- Validate pack exists
     if not pack then
@@ -227,11 +225,25 @@ function Manager:handle_pack_load(data, state, on_complete)
         return
     end
 
-    -- Mark as installed
+    -- ✅ CRITICAL: Mark installed IMMEDIATELY (synchronously)
     pack.installed = true
+    
+    -- ✅ CRITICAL: Set metadata IMMEDIATELY
+    pack:set_active(data)
+    pack:set_path(data.path)
 
-    -- Load the pack (packadd) - wrap in schedule to avoid unsafe API call
+    -- ✅ CRITICAL: Record timing IMMEDIATELY
+    pack.times = pack.times or {}
+    pack.times.install_duration = "0.00" -- Will be updated later
+
+    -- ✅ CRITICAL: Increment counter IMMEDIATELY
+    state.completed = state.completed + 1
+
+    -- ✅ NOW schedule the heavy work AFTER this callback returns
     vim.schedule(function()
+        local pack_start_time = vim.loop.hrtime()
+        
+        -- 1. Packadd (can be slow)
         local packadd_ok, packadd_err = pcall(vim.cmd, "packadd " .. pack_name)
         if not packadd_ok then
             Utils.safe_notify(
@@ -239,20 +251,12 @@ function Manager:handle_pack_load(data, state, on_complete)
                 vim.log.levels.WARN
             )
         end
-    end)
 
-    -- Record timing
-    local install_duration_ms = (vim.loop.hrtime() - pack_start_time) / 1e6
-    pack.times = pack.times or {}
-    pack.times.install_duration = string.format("%.2f", install_duration_ms)
+        -- 2. Update timing
+        local install_duration_ms = (vim.loop.hrtime() - pack_start_time) / 1e6
+        pack.times.install_duration = string.format("%.2f", install_duration_ms)
 
-    -- Set pack metadata
-    pack:set_active(data)
-    pack:set_path(data.path)
-
-    -- ✅ FIX: Remove nested vim.schedule + vim.defer_fn
-    -- Emit install finish event immediately
-    vim.schedule(function()
+        -- 3. Emit event
         Bus.emit("pack:install:finish", {
             name = pack_name,
             status = "installed",
@@ -261,10 +265,8 @@ function Manager:handle_pack_load(data, state, on_complete)
             pack = pack,
             stage = pack._install_stage,
         })
-    end)
 
-    -- Run task lifecycle
-    vim.schedule(function()
+        -- 4. Run task lifecycle
         if pack.lifecycle then
             local ok, err = pack.lifecycle:run_next()
             if not ok and err ~= "no more tasks" then
@@ -276,11 +278,36 @@ function Manager:handle_pack_load(data, state, on_complete)
         end
     end)
 
-    -- Increment completion counter
-    state.completed = state.completed + 1
+    -- ✅ CRITICAL: Check completion synchronously
+    -- Don't wait for scheduled work to finish
+    if state.completed >= state.total then
+        -- Close timeout timer
+        if state.timer and not state.timer:is_closing() then
+            pcall(function()
+                state.timer:close()
+            end)
+            state.timer = nil
+        end
 
-    -- Check if all packs are done
-    self:check_installation_complete(state, on_complete)
+        -- Calculate elapsed time
+        local total_elapsed_ms = (vim.loop.hrtime() - state.start_time) / 1e6
+
+        -- Build result
+        local result = {
+            installed_count = state.total - #state.failed,
+            failed_count = #state.failed,
+            failed_packs = state.failed,
+            elapsed_ms = total_elapsed_ms,
+            total_packs = state.total,
+        }
+
+        -- ✅ Schedule the completion callback
+        if on_complete then
+            vim.schedule(function()
+                on_complete(true, result)
+            end)
+        end
+    end
 end
 
 -- Check if installation is complete and trigger callback
@@ -445,6 +472,275 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         return false
     end
 
+    return true
+end
+
+
+function Manager:install_activate_batch_v2(pack_groups, on_complete)
+    local Utils = self.utils
+    local Bus = self.bus
+    local should_confirm = self.opts.add_opts and self.opts.add_opts.confirm or false
+
+    local all_packs = self:flatten_pack_groups(pack_groups)
+
+    if #all_packs == 0 then
+        if on_complete then
+            vim.schedule(function()
+                on_complete(true, {
+                    installed_count = 0,
+                    failed_count = 0,
+                    failed_packs = {},
+                    elapsed_ms = 0,
+                    total_packs = 0,
+                })
+            end)
+        end
+        return true
+    end
+
+    local state = {
+        total = #all_packs,
+        completed = 0,
+        failed = {},
+        start_time = vim.loop.hrtime(),
+    }
+
+    -- Emit events
+    for _, pack in ipairs(all_packs) do
+        local name = pack.specs.normalize.name
+        pack:set_status("installing")
+        vim.schedule(function()
+            Bus.emit("pack:install:start", {
+                name = name,
+                status = "installing",
+                message = "Installing",
+                pack = pack,
+                stage = pack._install_stage,
+            })
+        end)
+    end
+
+    local n_specs = vim.tbl_map(function(p)
+        return p.specs.normalize
+    end, all_packs)
+
+    -- ✅ FIX: Call vim.pack.add WITHOUT load callback
+    -- Then process packs after it completes
+    local ok, err = pcall(function()
+        vim.pack.add(n_specs, { confirm = should_confirm, load = false })
+    end)
+
+    if not ok then
+        Utils.safe_notify(
+            string.format("Batch installation failed: %s", tostring(err)),
+            vim.log.levels.ERROR
+        )
+        self:handle_install_failure(err, all_packs, state, on_complete)
+        return false
+    end
+
+    -- ✅ NOW process all packs after vim.pack.add completes
+    vim.schedule(function()
+        for _, pack in ipairs(all_packs) do
+            local pack_name = pack.specs.normalize.name
+            local pack_start_time = vim.loop.hrtime()
+
+            -- Check if pack was actually installed
+            local pack_info = vim.pack.get(pack_name)
+            if not pack_info then
+                Utils.safe_notify(
+                    string.format("Pack '%s' not found after installation", pack_name),
+                    vim.log.levels.WARN
+                )
+                table.insert(state.failed, pack_name)
+                goto continue
+            end
+
+            -- Mark as installed
+            pack.installed = true
+            pack:set_active(pack_info)
+            pack:set_path(pack_info.path)
+
+            -- Packadd
+            local packadd_ok, packadd_err = pcall(vim.cmd, "packadd " .. pack_name)
+            if not packadd_ok then
+                Utils.safe_notify(
+                    string.format("Failed to packadd '%s': %s", pack_name, tostring(packadd_err)),
+                    vim.log.levels.WARN
+                )
+            end
+
+            -- Record timing
+            local install_duration_ms = (vim.loop.hrtime() - pack_start_time) / 1e6
+            pack.times = pack.times or {}
+            pack.times.install_duration = string.format("%.2f", install_duration_ms)
+
+            -- Emit event
+            Bus.emit("pack:install:finish", {
+                name = pack_name,
+                status = "installed",
+                message = "Installation complete",
+                install_duration = pack.times.install_duration,
+                pack = pack,
+                stage = pack._install_stage,
+            })
+
+            -- Run task lifecycle
+            if pack.lifecycle then
+                local lifecycle_ok, lifecycle_err = pack.lifecycle:run_next()
+                if not lifecycle_ok and lifecycle_err ~= "no more tasks" then
+                    Utils.safe_notify(
+                        string.format("Pack '%s' task lifecycle error: %s", pack_name, tostring(lifecycle_err)),
+                        vim.log.levels.WARN
+                    )
+                end
+            end
+
+            ::continue::
+        end
+
+        -- Calculate elapsed time
+        local total_elapsed_ms = (vim.loop.hrtime() - state.start_time) / 1e6
+
+        -- Build result
+        local result = {
+            installed_count = state.total - #state.failed,
+            failed_count = #state.failed,
+            failed_packs = state.failed,
+            elapsed_ms = total_elapsed_ms,
+            total_packs = state.total,
+        }
+
+        -- Call completion callback
+        if on_complete then
+            on_complete(true, result)
+        end
+    end)
+
+    return true
+end
+
+function Manager:install_activate_sequential(pack_groups, on_complete)
+    local Utils = self.utils
+    local Bus = self.bus
+    local should_confirm = self.opts.add_opts and self.opts.add_opts.confirm or false
+
+    local all_packs = self:flatten_pack_groups(pack_groups)
+
+    if #all_packs == 0 then
+        if on_complete then
+            vim.schedule(function()
+                on_complete(true, {
+                    installed_count = 0,
+                    failed_count = 0,
+                    failed_packs = {},
+                    elapsed_ms = 0,
+                    total_packs = 0,
+                })
+            end)
+        end
+        return true
+    end
+
+    local state = {
+        total = #all_packs,
+        completed = 0,
+        failed = {},
+        start_time = vim.loop.hrtime(),
+    }
+
+    -- Process packs one at a time (reliable but slower)
+    local function process_next_pack(index)
+        if index > #all_packs then
+            -- All done
+            local total_elapsed_ms = (vim.loop.hrtime() - state.start_time) / 1e6
+            local result = {
+                installed_count = state.total - #state.failed,
+                failed_count = #state.failed,
+                failed_packs = state.failed,
+                elapsed_ms = total_elapsed_ms,
+                total_packs = state.total,
+            }
+            if on_complete then
+                vim.schedule(function()
+                    on_complete(true, result)
+                end)
+            end
+            return
+        end
+
+        local pack = all_packs[index]
+        local pack_name = pack.specs.normalize.name
+        
+        pack:set_status("installing")
+        Bus.emit("pack:install:start", {
+            name = pack_name,
+            status = "installing",
+            message = "Installing",
+            pack = pack,
+            stage = pack._install_stage,
+        })
+
+        -- Install this pack
+        vim.schedule(function()
+            local ok, err = pcall(function()
+                vim.pack.add({ pack.specs.normalize }, { confirm = should_confirm })
+            end)
+
+            if not ok then
+                Utils.safe_notify(
+                    string.format("Failed to install '%s': %s", pack_name, tostring(err)),
+                    vim.log.levels.WARN
+                )
+                table.insert(state.failed, pack_name)
+                state.completed = state.completed + 1
+                process_next_pack(index + 1)
+                return
+            end
+
+            -- Pack installed successfully
+            local pack_info = vim.pack.get(pack_name)
+            if pack_info then
+                pack.installed = true
+                pack:set_active(pack_info)
+                pack:set_path(pack_info.path)
+
+                -- Packadd
+                pcall(vim.cmd, "packadd " .. pack_name)
+
+                -- Record timing
+                pack.times = pack.times or {}
+                pack.times.install_duration = "0.00"
+
+                -- Emit event
+                Bus.emit("pack:install:finish", {
+                    name = pack_name,
+                    status = "installed",
+                    message = "Installation complete",
+                    install_duration = pack.times.install_duration,
+                    pack = pack,
+                    stage = pack._install_stage,
+                })
+
+                -- Run lifecycle
+                if pack.lifecycle then
+                    pcall(pack.lifecycle.run_next, pack.lifecycle)
+                end
+            else
+                table.insert(state.failed, pack_name)
+            end
+
+            state.completed = state.completed + 1
+            
+            -- Process next pack
+            vim.schedule(function()
+                process_next_pack(index + 1)
+            end)
+        end)
+    end
+
+    -- Start processing
+    process_next_pack(1)
     return true
 end
 
@@ -674,7 +970,7 @@ function Manager:run_packs()
 
     -- Start batch installation with callback
     -- The callback will fire when ALL packs have finished installing
-    local install_ok = self:install_activate_batch(by_stage, function(success, result)
+    local install_ok = self:install_activate_batch_v2(by_stage, function(success, result)
         if not success then
             Utils.safe_notify(
                 string.format(
