@@ -191,19 +191,6 @@ function LazyElement:render_detailed()
     return string.format("%s %s: %s", icon, type_label, table.concat(trigger_values, ", "))
 end
 
-function LazyElement:get_info()
-    if not self.value or not next(self.value) then
-        return { type = "none", values = {}, count = 0 }
-    end
-
-    local trigger_type, trigger_values = self:_parse(self.value)
-    return {
-        type = trigger_type,
-        values = trigger_values,
-        count = #trigger_values,
-    }
-end
-
 -- Simple parse function - no state mutation
 function LazyElement:_parse(on)
     if not on or not next(on) then
@@ -258,6 +245,18 @@ function LazyElement:_parse(on)
     end
 
     return "none", {}
+end
+
+function LazyElement:get_info()
+    if not self.value or not next(self.value) then
+        return { type = "none", values = {}, count = 0 }
+    end  
+    local trigger_type, trigger_values = self:_parse(self.value)
+    return {
+        type = trigger_type,
+       values = trigger_values,
+        count = #trigger_values,
+    }
 end
 
 local StatusElement = setmetatable({}, { __index = Element })

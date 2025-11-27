@@ -1206,6 +1206,12 @@ function Dashboard:close()
         end
     end
 
+     for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
+        if buf and vim.api.nvim_buf_is_valid(buf) then
+            pcall(vim.api.nvim_buf_delete, buf, { force = true })
+        end
+    end
+
     self.header_win = nil
     self.content_win = nil
     self.footer_win = nil
@@ -1509,6 +1515,9 @@ end
 -- ============================================================================
 function Dashboard:init(container, elements, icons, opts)
     opts = opts or {}
+     self.render_timer = nil  -- ✅ Initialize
+    self._footer_timer = nil
+    self.autocmd_ids = {}
     -- Allow disabling window lock
     self.config = {
         lock_windows = opts.lock_windows ~= false, -- default true

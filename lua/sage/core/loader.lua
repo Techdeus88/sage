@@ -7,14 +7,11 @@ Loader.__index = Loader
 
 function Loader.new(container, opts)
     local self = setmetatable({}, Loader)
-
     self.opts = opts
-
     self.bus = container:resolve("bus")
     self.utils = container:resolve("utils")
-
     self.timers = {}
-
+    self.autocmds = {} -- ✅ CRITICAL: This was missing!
     return self
 end
 
@@ -388,8 +385,29 @@ end
 -- ============================================================================
 
 function Loader:close_all()
-    -- Clean up any remaining triggers
-    -- This would need tracking of created commands/keymaps/autocmds
+    -- Close all timers
+    for _, timer in ipairs(self.timers or {}) do
+        if timer and not timer:is_closing() then
+            pcall(function()
+                timer:close()
+            end)
+        end
+    end
+    self.timers = {}
+
+    -- Remove all autocmds
+    for _, id in ipairs(self.autocmds or {}) do
+        function Loader:iclose_all()
+            -- Clean up any remaining triggers
+            -- This would need tracking of created commands/keymaps/autocmds
+        end
+
+        pcall(vim.api.nvim_del_autocmd, id)
+    end
+    self.autocmds = {}
+
+    -- Note: Command/keymap cleanup would need tracking similar to autocmds
+    vim.notify("Loader cleaned up", vim.log.levels.DEBUG)
 end
 
 return Loader

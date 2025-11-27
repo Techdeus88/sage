@@ -33,7 +33,7 @@ function c:run_commands()
             vim.notify("Logger not available", vim.log.levels.ERROR)
         end
     end, { desc = "Sage Logger (toggle)", silent = true })
-    vim.keymap.set("n", "<leader>s", "<cmd>SageOpen<cr>", { desc = "Open Sage dashboard" })
+    vim.keymap.set("n", "<leader>s", "<cmd>Sage<cr>", { desc = "Open Sage dashboard" })
     vim.keymap.set("n", "<leader>st", "<cmd>SageToggle<cr>", { desc = "Toggle Sage dashboard" })
 end
 
@@ -133,8 +133,6 @@ function c:run_autocmds()
             if not Pack then
                 return -- Pack not in our system, skip
             end
-
-            local n_spec = Pack.specs.normalize
 
             if kind == "update" then
                 Pack:set_status("updated")
