@@ -1,5 +1,5 @@
 -- ============================================================================
--- Example Loader Implementation with Task System Integration
+-- SAGE LOADER (FIXED - Drop-in Ready)
 -- ============================================================================
 
 local Loader = {}
@@ -7,41 +7,42 @@ Loader.__index = Loader
 
 function Loader.new(container, opts)
     local self = setmetatable({}, Loader)
+
     self.opts = opts
+
     self.bus = container:resolve("bus")
     self.utils = container:resolve("utils")
+
     self.timers = {}
-    self.autocmds = {}
+    self.autocmds = {}  -- ✅ FIXED: Initialize autocmds table
+
     return self
 end
 
 -- ============================================================================
--- CORRECT: Loader triggers tasks, doesn't run config directly
+-- CORRECT: Loader calls packadd and emits events for task system
 -- ============================================================================
 
 function Loader:load_pack_safe(pack, reason)
     local name = pack:get_name()
     local stage = pack:get_stage()
-    local delay_load = 200
 
     -- Set loading status
     pack:set_status("loading")
 
     -- Emit loading start event
     vim.schedule(function()
-        vim.defer_fn(function()
-            self.bus.emit("pack:load:start", {
-                name = name,
-                status = pack:get_status(),
-                stage = stage,
-                message = "Loading",
-                pack = pack,
-            })
-        end, delay_load)
+        self.bus.emit("pack:load:start", {
+            name = name,
+            status = pack:get_status(),
+            stage = stage,
+            message = "Loading",
+            pack = pack,
+        })
     end)
 
     local ok, err = pcall(function()
-        self:load_pack(pack, delay_load)
+        self:load_pack(pack)
     end)
 
     if not ok then
@@ -53,73 +54,62 @@ function Loader:load_pack_safe(pack, reason)
     return true
 end
 
-function Loader:load_pack(pack, delay_load)
+function Loader:load_pack(pack)
     local name = pack:get_name()
-    pack:set_status("configuring")
+    
+    -- ✅ CRITICAL: Call packadd here (pack was installed but not loaded yet)
+    local packadd_ok, packadd_err = pcall(vim.cmd, "packadd " .. name)
+    if not packadd_ok then
+        self.utils.safe_notify(
+            string.format("Failed to packadd '%s': %s", name, tostring(packadd_err)),
+            vim.log.levels.ERROR
+        )
+        pack:set_status("failed")
+        return
+    end
 
-    -- IMPORTANT: The Loader does NOT call config() directly
-    -- Instead, it signals the task system to run the config task
+    pack:set_status("configuring")
 
     -- Emit event to signal configuration should start
     vim.schedule(function()
-        vim.defer_fn(function()
-            self.bus.emit("pack:config:start", {
-                name = name,
-                status = pack:get_status(),
-                message = "Adding configuration",
-                pack = pack,
-            })
-        end, delay_load + 25)
+        self.bus.emit("pack:config:start", {
+            name = name,
+            status = pack:get_status(),
+            message = "Configuring",
+            pack = pack,
+        })
     end)
 
-    -- Trigger the task lifecycle to continue
-    -- This will run any pending tasks (config, after_hook)
+    -- ✅ The config task in the lifecycle will run the actual config function
+    -- We just need to wait for it to complete
+    
+    -- If pack has lifecycle, it's already running from pack:install:finish event
+    -- The config task will execute and emit pack:config:finish when done
+    
+    -- For packs without config, mark as configured immediately
+    if pack.specs.normalize.data.config == nil then
+        pack:set_status("configured")
+        vim.schedule(function()
+            self.bus.emit("pack:config:finish", {
+                name = name,
+                status = pack:get_status(),
+                message = "No config needed",
+                pack = pack,
+                config_duration = "0.00",
+            })
+        end)
+    end
+
+    -- Mark as loaded (config task will run separately via lifecycle)
+    pack:set_status("loaded")
+    
     vim.schedule(function()
-        if pack.lifecycle then
-            local ok, err = pack.lifecycle:run_next()
-
-            if not ok and err ~= "no more tasks" then
-                self.utils.safe_notify(
-                    string.format("Pack '%s' task execution failed: %s", name, tostring(err)),
-                    vim.log.levels.ERROR
-                )
-                pack:set_status("failed")
-                return
-            end
-            if ok then
-                pack:set_status("configured")
-                vim.schedule(function()
-                    vim.defer_fn(function()
-                        self.bus.emit("pack:config:finish", {
-                            name = name,
-                            status = pack:get_status(),
-                            message = "Config added",
-                            pack = pack,
-                        })
-                    end, delay_load + 50)
-                end)
-            end
-
-            -- After tasks complete successfully, mark as loaded
-            if pack.lifecycle.completed then
-                pack:set_status("loaded")
-
-                vim.schedule(function()
-                    vim.defer_fn(function()
-                        self.bus.emit("pack:load:complete", {
-                            name = name,
-                            status = pack:get_status(),
-                            message = "Loading complete",
-                            pack = pack,
-                        })
-                    end, delay_load + 100)
-                end)
-            end
-        else
-            -- No lifecycle (shouldn't happen with task system)
-            self.utils.safe_notify(string.format("Pack '%s' has no lifecycle", name), vim.log.levels.WARN)
-            pack:set_status("loaded")
-        end
+        self.bus.emit("pack:load:complete", {
+            name = name,
+            status = pack:get_status(),
+            message = "Loading complete",
+            pack = pack,
+        })
     end)
 end
 
@@ -256,7 +246,7 @@ function Loader:setup_event_triggers(pack, events)
 
     local group = vim.api.nvim_create_augroup("LazyLoad_" .. pack:get_name(), { clear = true })
 
-    vim.api.nvim_create_autocmd(event_list, {
+    local autocmd_id = vim.api.nvim_create_autocmd(event_list, {
         group = group,
         once = true,
         callback = function()
@@ -267,6 +257,8 @@ function Loader:setup_event_triggers(pack, events)
             self:load_pack_safe(pack)
         end,
     })
+    
+    table.insert(self.autocmds, autocmd_id)
 end
 
 function Loader:setup_filetype_triggers(pack, filetypes)
@@ -274,7 +266,7 @@ function Loader:setup_filetype_triggers(pack, filetypes)
 
     local group = vim.api.nvim_create_augroup("LazyLoadFT_" .. pack:get_name(), { clear = true })
 
-    vim.api.nvim_create_autocmd("FileType", {
+    local autocmd_id = vim.api.nvim_create_autocmd("FileType", {
         group = group,
         pattern = ft_list,
         once = true,
@@ -286,7 +278,13 @@ function Loader:setup_filetype_triggers(pack, filetypes)
             self:load_pack_safe(pack)
         end,
     })
+    
+    table.insert(self.autocmds, autocmd_id)
 end
+
+-- ============================================================================
+-- Loading Strategies
+-- ============================================================================
 
 -- Strategy vimenter: loads all lazy packs on VimEnter
 function Loader:_strategy_vimenter(packs, opts)
@@ -347,7 +345,6 @@ function Loader:_strategy_idle(packs, opts)
         if time_since_input >= idle_time_ms and not has_started then
             has_started = true
             for i, pack in ipairs(packs) do
-                local delay = (i - 1) * 50
                 self:load_pack_safe(pack, "Idle strategy")
             end
             return false -- Stop checking
@@ -381,7 +378,7 @@ function Loader:_strategy_idle(packs, opts)
 end
 
 -- ============================================================================
--- Cleanup
+-- Cleanup (FIXED)
 -- ============================================================================
 
 function Loader:close_all()
@@ -397,17 +394,12 @@ function Loader:close_all()
 
     -- Remove all autocmds
     for _, id in ipairs(self.autocmds or {}) do
-        function Loader:iclose_all()
-            -- Clean up any remaining triggers
-            -- This would need tracking of created commands/keymaps/autocmds
-        end
-
         pcall(vim.api.nvim_del_autocmd, id)
     end
     self.autocmds = {}
 
-    -- Note: Command/keymap cleanup would need tracking similar to autocmds
-    vim.notify("Loader cleaned up", vim.log.levels.DEBUG)
+    -- Note: Commands and keymaps would need separate tracking to clean up
+    -- For now, they'll be cleaned up when Neovim exits
 end
 
 return Loader

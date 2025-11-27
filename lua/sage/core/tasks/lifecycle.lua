@@ -1,5 +1,6 @@
+
 -- ============================================================================
--- lifecycle.lua
+-- FILE 2: sage/core/tasks/lifecycle.lua (FIXED)
 -- ============================================================================
 
 local Lifecycle = {}
@@ -21,6 +22,7 @@ function Lifecycle.new(pack)
     self.task_order = {}
     self.current_task_index = 0
     self.completed = false
+    self.started = false  -- ✅ Track if lifecycle has started
     return self
 end
 
@@ -47,8 +49,10 @@ function Lifecycle:get_next_runnable_task()
                 self.current_task_index = i
                 return task
             elseif task.required then
-                return nil, reason
+                -- ✅ Required task can't run - fail the lifecycle
+                return nil, string.format("Required task '%s' cannot run: %s", task.name, reason)
             else
+                -- ✅ Optional task can't run - skip it
                 task:skip(reason)
             end
         end
@@ -61,6 +65,7 @@ function Lifecycle:run_next()
     local task, reason = self:get_next_runnable_task()
 
     if not task then
+        -- Check if all required tasks are done
         local all_required_done = true
         for _, task_id in ipairs(self.task_order) do
             local t = self.tasks[task_id]
@@ -127,9 +132,11 @@ function Lifecycle:run_next()
     end
 
     if ok then
+        -- Continue to next task
         return self:run_next()
     end
 
+    -- Task failed
     return false, result
 end
 
@@ -167,4 +174,3 @@ function Lifecycle:get_progress()
 end
 
 return Lifecycle
-

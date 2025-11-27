@@ -1,5 +1,6 @@
+
 -- ============================================================================
--- builder.lua (Fixed)
+-- FILE 3: sage/core/tasks/builder.lua (FIXED)
 -- ============================================================================
 
 local TaskBuilder = {}
@@ -8,15 +9,20 @@ function TaskBuilder.create_default_tasks()
     local Task = require("sage.core.tasks.task")
     local tasks = {}
 
-    -- Task 1: Validate spec
+    -- ============================================================================
+    -- Task 1: Validate Spec (runs immediately)
+    -- ============================================================================
     table.insert(
         tasks,
         Task.new({
             id = "validate",
             name = "Validate Spec",
             required = true,
+            condition = function(p)
+                -- ✅ Always runs (no pack.installed check)
+                return true
+            end,
             fn = function(p)
-                -- FIXED: Added nil checks
                 if not p or not p.specs or not p.specs.normalize then
                     error("Pack or spec is invalid")
                 end
@@ -32,69 +38,89 @@ function TaskBuilder.create_default_tasks()
         })
     )
 
-    -- Task 2: Install (only if not installed)
+    -- ============================================================================
+    -- Task 2: Install Check (blocks until pack.installed = true)
+    -- ============================================================================
     table.insert(
         tasks,
         Task.new({
             id = "install",
             name = "Install",
             required = true,
-            -- depends = { "validate" },
             condition = function(p)
-                return p and p.installed
+                -- ✅ CRITICAL: Block until installed
+                return p and p.installed == true
             end,
             fn = function(p)
-                -- Manager is responsible for actually installing.
-                -- Here we just assert that it happened.
                 if not p or not p.installed then
-                    error("Installation did not complete")
+                    error("Pack not installed yet")
                 end
-                -- p:set_installed(true)
+                -- Installation already done by Manager
                 return true
             end,
         })
     )
 
-    -- Task 3: Build (conditional)
+    -- ============================================================================
+    -- Task 3: Build (conditional, after install)
+    -- ============================================================================
     table.insert(
         tasks,
         Task.new({
             id = "build",
             name = "Build",
             required = false,
-            -- depends = { "install" },
             condition = function(p)
-                return p and p.specs and p.specs.normalize and p.specs.normalize.data.build ~= nil
+                return p
+                    and p.installed == true
+                    and p.specs
+                    and p.specs.normalize
+                    and p.specs.normalize.data.build ~= nil
             end,
             fn = function(p)
-                -- FIXED: Added nil checks
                 if not p or not p.specs or not p.specs.normalize then
                     error("Pack spec is invalid")
                 end
 
-                local commands = require("sage.commands")
                 local spec = p.specs.normalize
                 local build = spec.data.build
 
-                if build then
-                    local path = Sage.plugin_path(spec.name)
-                    commands.build(spec, path)
+                if build and type(build) == "string" then
+                    local path = p:get_path()
+                    if not path then
+                        error("Pack path not available")
+                    end
+
+                    -- Execute build command
+                    vim.notify(string.format("Building %s...", spec.name), vim.log.levels.INFO)
+                    local result = vim.system(vim.split(build, " "), { cwd = path }):wait()
+                    
+                    if result.code ~= 0 then
+                        error(string.format("Build failed with code %d: %s", result.code, result.stderr or ""))
+                    end
+                    
+                    vim.notify(string.format("Build successful for %s", spec.name), vim.log.levels.INFO)
                 end
                 return true
             end,
         })
     )
 
-    -- Task 4: Pre-config hook
+    -- ============================================================================
+    -- Task 4: Before Hook (conditional, after install)
+    -- ============================================================================
     table.insert(
         tasks,
         Task.new({
             id = "before_hook",
             name = "Before Hook",
             required = false,
-            -- depends = { "install" },
             condition = function(p)
-                return p and p.enabled and p.specs and p.specs.normalize and p.specs.normalize.data.before ~= nil
+                return p
+                    and p.installed == true
+                    and p.specs
+                    and p.specs.normalize
+                    and p.specs.normalize.data.before ~= nil
             end,
             fn = function(p)
                 if not p or not p.specs or not p.specs.normalize then
@@ -110,17 +136,22 @@ function TaskBuilder.create_default_tasks()
         })
     )
 
-    -- Task 5: Configure (NOW REQUIRED)
+    -- ============================================================================
+    -- Task 5: Configure (required, after install)
+    -- ============================================================================
     table.insert(
         tasks,
         Task.new({
             id = "config",
             name = "Configure",
-            required = true, -- CHANGED: Config is now REQUIRED
-            -- depends = { "install" },
+            required = true,
             condition = function(p)
-                -- Config task runs if pack has a config function
-                return p and p.enabled and p.specs and p.specs.normalize and p.specs.normalize.data.config ~= nil
+                -- ✅ Config runs if pack is installed AND has config function
+                return p
+                    and p.installed == true
+                    and p.specs
+                    and p.specs.normalize
+                    and p.specs.normalize.data.config ~= nil
             end,
             fn = function(p)
                 if not p or not p.specs or not p.specs.normalize then
@@ -129,25 +160,35 @@ function TaskBuilder.create_default_tasks()
 
                 local config = p.specs.normalize.data.config
                 if type(config) == "function" then
-                    -- This is where the actual config function runs
-                    -- NOT in the Loader!
+                    -- ✅ This is where user config runs
+                    local start_time = vim.loop.hrtime()
                     config()
+                    local duration = (vim.loop.hrtime() - start_time) / 1e6
+                    
+                    -- Store config timing
+                    p.times = p.times or {}
+                    p.times.config_duration = string.format("%.2f", duration)
                 end
                 return true
             end,
         })
     )
 
-    -- Task 6: Post-config hook
+    -- ============================================================================
+    -- Task 6: After Hook (conditional, after config)
+    -- ============================================================================
     table.insert(
         tasks,
         Task.new({
             id = "after_hook",
             name = "After Hook",
             required = false,
-            -- depends = { "config" },
             condition = function(p)
-                return p and p.enabled and p.specs and p.specs.normalize and p.specs.normalize.data.after ~= nil
+                return p
+                    and p.installed == true
+                    and p.specs
+                    and p.specs.normalize
+                    and p.specs.normalize.data.after ~= nil
             end,
             fn = function(p)
                 if not p or not p.specs or not p.specs.normalize then

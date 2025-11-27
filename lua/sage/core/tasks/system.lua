@@ -1,5 +1,5 @@
 -- ============================================================================
--- system.lua
+-- FILE 1: sage/core/tasks/system.lua (FIXED)
 -- ============================================================================
 
 local TaskSystem = {}
@@ -21,11 +21,13 @@ function TaskSystem.wire_pack(pack)
     if not pack then
         return
     end
-
     if wired_packs[pack] then
         return
     end
+    
     wired_packs[pack] = true
+    
+    local name = pack:get_name()
 
     local TaskBuilder = require("sage.core.tasks.builder")
     local TaskLifecycle = require("sage.core.tasks.lifecycle")
@@ -43,7 +45,8 @@ function TaskSystem.wire_pack(pack)
 
     pack._task_event_listeners = pack._task_event_listeners or {}
 
-    -- Listen to pack events
+    -- ✅ FIX: Listen to pack:install:finish to trigger lifecycle
+    -- This is the ONLY place lifecycle should start
     if bus then
         local install_listener = bus.on("pack:install:finish", function(data)
             if not pack or not pack.specs or not pack.specs.normalize then
@@ -51,35 +54,23 @@ function TaskSystem.wire_pack(pack)
             end
 
             if data.name == pack.specs.normalize.name then
+                -- ✅ CRITICAL: Mark as installed
                 pack.installed = true
+                
+                -- ✅ Start lifecycle NOW (after installation)
                 vim.schedule(function()
-                    if pack.lifecycle then
+                    if pack.lifecycle and not pack.lifecycle.started then
+                        pack.lifecycle.started = true
                         pack.lifecycle:run_next()
                     end
                 end)
             end
         end)
         table.insert(pack._task_event_listeners, { event = "pack:install:finish", id = install_listener })
-
-        local config_listener = bus.on("pack:config:finish", function(data)
-            if not pack or not pack.specs or not pack.specs.normalize then
-                return
-            end
-
-            if data.name == pack.specs.normalize.name then
-                pack.loaded = true
-                vim.schedule(function()
-                    if pack.lifecycle then
-                        pack.lifecycle:run_next()
-                    end
-                end)
-            end
-        end)
-        table.insert(pack._task_event_listeners, { event = "pack:config:finish", id = config_listener })
     end
 
     if logger then
-        logger:debug("TaskSystem", string.format("Wired pack '%s'", pack:get_name()))
+        logger:debug("TaskSystem", string.format("Wired pack '%s'", name))
     end
 end
 
