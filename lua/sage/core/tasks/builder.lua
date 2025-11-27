@@ -77,7 +77,8 @@ function TaskBuilder.create_default_tasks()
                 local build = spec.data.build
 
                 if build then
-                    commands.handle_build(spec)
+                    local path = Sage.plugin_path(spec.name)
+                    commands.build(spec, path)
                 end
                 return true
             end,
