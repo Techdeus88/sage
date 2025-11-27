@@ -1155,6 +1155,9 @@ end
 -- Window Management
 -- ============================================================================
 function Dashboard:open()
+    if (not self.event_listeners or #self.event_listeners == 0) and self.bus then
+        self:listen()
+    end
     if
         self.header_win
         and vim.api.nvim_win_is_valid(self.header_win)
@@ -1169,7 +1172,6 @@ function Dashboard:open()
         self:create_three_pane_layout()
         self:render_header()
         self:render_footer()
-        -- self:listen()
         self:setup_keymaps()
     end)
 
@@ -1180,7 +1182,8 @@ end
 
 function Dashboard:close()
     -- Unregister event listeners first
-    self:unlisten()
+    -- self:unlisten()
+    self.is_open = false
 
     if self.render_timer and not self.render_timer:is_closing() then
         self.render_timer:close() -- ← REQUIRED!
@@ -1206,7 +1209,7 @@ function Dashboard:close()
         end
     end
 
-     for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
+    for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
         if buf and vim.api.nvim_buf_is_valid(buf) then
             pcall(vim.api.nvim_buf_delete, buf, { force = true })
         end
@@ -1373,7 +1376,7 @@ function Dashboard:listen()
     end)
 
     register("pack:task:start", function(data)
-        local Manager = get_manager()  
+        local Manager = get_manager()
         local row = self:find(data.name)
         if not row then
             return
@@ -1515,7 +1518,7 @@ end
 -- ============================================================================
 function Dashboard:init(container, elements, icons, opts)
     opts = opts or {}
-     self.render_timer = nil  -- ✅ Initialize
+    self.render_timer = nil -- ✅ Initialize
     self._footer_timer = nil
     self.autocmd_ids = {}
     -- Allow disabling window lock
@@ -1532,8 +1535,8 @@ function Dashboard:init(container, elements, icons, opts)
     self.bus = self.container:resolve("bus")
     self.manager = self.container:resolve("manager")
     self.utils = self.container:resolve("utils")
-    self:listen()
 
+    self:listen()
     self:setup_debounced_footer()
 
     -- ========================================================================
@@ -1671,7 +1674,6 @@ function Dashboard:init(container, elements, icons, opts)
             lazy_info = row.lazy and row.lazy:get_info() or "no lazy element",
             trigger_data = row.lazy and row.lazy.trigger_data or "none",
         }
-
         print(vim.inspect(info))
     end, { nargs = 1, desc = "Debug lazy element for a pack" })
 end
