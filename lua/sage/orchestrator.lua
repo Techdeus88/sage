@@ -131,20 +131,22 @@ function Orchestrator:init_ui()
     local SageDashboard = require("sage.ui.dashboard")
     local SageElements = require("sage.ui.elements")
     local SageIcons = require("sage.ui.icons")
-
+    local SageDashboardManager = require("sage.ui.manager")
 
     -- Initialize the dashboard with options
     SageDashboard:init(self.container, SageElements, SageIcons, self.opts)
     self.container:register("dashboard", function()
         return SageDashboard
-    end, { lazy = false })
+    end, { lazy = true })
 
     -- NEW: wire the strategy object
-    local dm = DashboardManager.new(opts)
+    local dm = SageDashboardManager.new(opts)
     dm.dashboard = SageDashboard        -- give it the UI
-    self.container:register("dashboard_manager", dm)
+    self.container:register("dashboard_manager", function()
+        return dm
+    end, { lazy = true })
     
-    self:log("Orchestrator", "SageDashboard registered")
+    self:log("Orchestrator", "SageDashboard w/ manager registered")
 end
 
 function Orchestrator:init_loader()
