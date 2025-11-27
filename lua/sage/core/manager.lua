@@ -546,7 +546,7 @@ function Manager:install_activate_batch_v2(pack_groups, on_complete)
             local pack_start_time = vim.loop.hrtime()
 
             -- Check if pack was actually installed
-            local pack_info = vim.pack.get(pack_name)
+            local pack_info = vim.pack.get({ pack_name })[1]
             if not pack_info then
                 Utils.safe_notify(
                     string.format("Pack '%s' not found after installation", pack_name),
