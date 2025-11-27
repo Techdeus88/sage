@@ -761,7 +761,7 @@ function Manager:create_all_packs(specs)
     local create_start = vim.loop.hrtime()
 
     -- Create all packs synchronously (no artificial delays)
-    for _, spec in ipairs(specs) do
+    for i, spec in ipairs(specs) do
         local pack_create_start = vim.loop.hrtime()
 
         -- Create the pack
@@ -785,6 +785,18 @@ function Manager:create_all_packs(specs)
         -- Store pack
         self.packs[name] = pack
         table.insert(packs, pack)
+
+        vim.schedule(function()
+            vim.defer_fn(function()
+                Bus.emit("pack:created", {
+                            name = name,
+                            status = pack:get_status(),
+                            stage = pack:get_stage(),
+                            message = "Created",
+                            pack = pack,
+                })
+            end, 25 * i)
+        end)
 
         ::continue::
     end

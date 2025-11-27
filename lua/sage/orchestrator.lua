@@ -257,11 +257,12 @@ function Orchestrator:execute_initialization()
     self:init_bus()
     self:init_logger()
     self:init_manager()
+
+    self:init_ui()
+
     self:init_pack()
     self:init_deps()
     self:init_metrics()
-
-    self:init_ui()
     self:init_loader()
     self:init_command()
     self:init_task()
