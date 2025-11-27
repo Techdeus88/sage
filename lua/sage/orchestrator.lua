@@ -140,7 +140,7 @@ function Orchestrator:init_ui()
     end, { lazy = true })
 
     -- NEW: wire the strategy object
-    local dm = SageDashboardManager.new(opts)
+    local dm = SageDashboardManager.new(self.opts)
     dm.dashboard = SageDashboard        -- give it the UI
     self.container:register("dashboard_manager", function()
         return dm
