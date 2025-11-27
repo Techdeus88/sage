@@ -304,7 +304,7 @@ function Dashboard:display_pack_comparison(pack_name)
     table.insert(lines, "└" .. string.rep("─", inner_width - 2) .. "┘")
 
     local buf = vim.api.nvim_create_buf(false, true)
-    local win = vim.api.nvim_open_win(buf, true, { -- Changed to true to focus the window
+    local win = vim.api.nvim_open_win(buf, true, {
         relative = "editor",
         width = win_width,
         height = win_height,
@@ -1256,6 +1256,7 @@ function Dashboard:listen()
 
     register("pack:all_created", function()
         vim.schedule(function()
+            self:sync_all_packs() -- 👈 seed rows from already-created packs
             self:render_footer()
         end)
     end)
@@ -1390,6 +1391,7 @@ function Dashboard:listen()
     end)
 
     register("pack:task:complete", function(data)
+        local Manager = get_manager()
         local row = self:find(data.name)
         if not row then
             return
@@ -1513,6 +1515,25 @@ function Dashboard:batch_update_lines(row_updates)
     self:update_footer_debounced()
 end
 
+function Dashboard:sync_all_packs()
+    if not self.manager or not self.manager.packs then
+        return
+    end
+
+    for name, pack in pairs(self.manager.packs) do
+        if not self.rows_by_name[name] then
+            self:add_pack({
+                name = name,
+                pack = pack,
+                stage = (pack.stage and pack.stage.value) or "now",
+                status = (pack.status and pack.status.value) or "not_loaded",
+                message = (pack.message and pack.message.value) or "",
+            })
+        end
+    end
+
+    self:resort_rows()
+end
 -- ============================================================================
 -- Initialization
 -- ============================================================================
