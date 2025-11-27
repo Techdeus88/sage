@@ -227,7 +227,7 @@ function Manager:handle_pack_load(data, state, on_complete)
 
     -- ✅ CRITICAL: Mark installed IMMEDIATELY (synchronously)
     pack.installed = true
-    
+
     -- ✅ CRITICAL: Set metadata IMMEDIATELY
     pack:set_active(data)
     pack:set_path(data.path)
@@ -242,7 +242,7 @@ function Manager:handle_pack_load(data, state, on_complete)
     -- ✅ NOW schedule the heavy work AFTER this callback returns
     vim.schedule(function()
         local pack_start_time = vim.loop.hrtime()
-        
+
         -- 1. Packadd (can be slow)
         local packadd_ok, packadd_err = pcall(vim.cmd, "packadd " .. pack_name)
         if not packadd_ok then
@@ -402,7 +402,7 @@ end
 function Manager:install_activate_batch(pack_groups, on_complete)
     local Utils = self.utils
     local Bus = self.bus
-    
+
     -- ✅ FIX: Get confirmation setting from config
     local should_confirm = self.opts.add_opts and self.opts.add_opts.confirm or false
 
@@ -460,21 +460,20 @@ function Manager:install_activate_batch(pack_groups, on_complete)
 
     -- ✅ FIX: Execute batch installation with correct confirm setting
     local ok, err = pcall(vim.pack.add, n_specs, {
-        confirm = should_confirm,  -- ✅ Use config value, not hardcoded false!
+        confirm = should_confirm, -- ✅ Use config value, not hardcoded false!
         load = function(data)
-            self:handle_pack_load(data, state, on_complete)  -- ✅ Removed 4th param
+            self:handle_pack_load(data, state, on_complete) -- ✅ Removed 4th param
         end,
     })
 
     -- Handle immediate failure
     if not ok then
-        self:handle_install_failure(err, all_packs, state, on_complete)  -- ✅ Removed 5th param
+        self:handle_install_failure(err, all_packs, state, on_complete) -- ✅ Removed 5th param
         return false
     end
 
     return true
 end
-
 
 function Manager:install_activate_batch_v2(pack_groups, on_complete)
     local Utils = self.utils
@@ -531,10 +530,7 @@ function Manager:install_activate_batch_v2(pack_groups, on_complete)
     end)
 
     if not ok then
-        Utils.safe_notify(
-            string.format("Batch installation failed: %s", tostring(err)),
-            vim.log.levels.ERROR
-        )
+        Utils.safe_notify(string.format("Batch installation failed: %s", tostring(err)), vim.log.levels.ERROR)
         self:handle_install_failure(err, all_packs, state, on_complete)
         return false
     end
@@ -671,7 +667,7 @@ function Manager:install_activate_sequential(pack_groups, on_complete)
 
         local pack = all_packs[index]
         local pack_name = pack.specs.normalize.name
-        
+
         pack:set_status("installing")
         Bus.emit("pack:install:start", {
             name = pack_name,
@@ -731,7 +727,7 @@ function Manager:install_activate_sequential(pack_groups, on_complete)
             end
 
             state.completed = state.completed + 1
-            
+
             -- Process next pack
             vim.schedule(function()
                 process_next_pack(index + 1)
@@ -789,13 +785,13 @@ function Manager:create_all_packs(specs)
         vim.schedule(function()
             vim.defer_fn(function()
                 Bus.emit("pack:created", {
-                            name = name,
-                            status = pack:get_status(),
-                            stage = pack:get_stage(),
-                            message = "Created",
-                            pack = pack,
+                    name = name,
+                    status = pack:get_status(),
+                    stage = pack:get_stage(),
+                    message = "Created",
+                    pack = pack,
                 })
-            end, 25 * i)
+            end, 50 * i)
         end)
 
         ::continue::

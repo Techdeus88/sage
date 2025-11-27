@@ -1157,6 +1157,7 @@ end
 function Dashboard:open()
     if (not self.event_listeners or #self.event_listeners == 0) and self.bus then
         self:listen()
+        self:sync_all_packs()
     end
     if
         self.header_win
@@ -1256,7 +1257,7 @@ function Dashboard:listen()
 
     register("pack:all_created", function()
         vim.schedule(function()
-            self:sync_all_packs() -- 👈 seed rows from already-created packs
+            self:sync_all_packs()
             self:render_footer()
         end)
     end)
@@ -1539,6 +1540,7 @@ end
 -- ============================================================================
 function Dashboard:init(container, elements, icons, opts)
     opts = opts or {}
+
     self.render_timer = nil -- ✅ Initialize
     self._footer_timer = nil
     self.autocmd_ids = {}
@@ -1559,6 +1561,7 @@ function Dashboard:init(container, elements, icons, opts)
 
     self:listen()
     self:setup_debounced_footer()
+    self:sync_all_packs()
 
     -- ========================================================================
     -- BASE UI HIGHLIGHTS
