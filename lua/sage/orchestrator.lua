@@ -135,11 +135,13 @@ function Orchestrator:init_ui()
 
     -- Initialize the dashboard with options
     SageDashboard:init(self.container, SageElements, SageIcons, self.opts)
-    self.container:register("dashboard", Dashboard)
+    self.container:register("dashboard", function()
+        return SageDashboard
+    end, { lazy = false })
 
     -- NEW: wire the strategy object
     local dm = DashboardManager.new(opts)
-    dm.dashboard = Dashboard        -- give it the UI
+    dm.dashboard = SageDashboard        -- give it the UI
     self.container:register("dashboard_manager", dm)
     
     self:log("Orchestrator", "SageDashboard registered")
