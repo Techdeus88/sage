@@ -83,7 +83,7 @@ local function handle_update(spec_names, opts)
     end)
 end
 
-local function handle_build(spec)
+local function handle_build(spec, path)
     if
         type(spec.src) ~= "string"
         or type(spec.data) ~= "table"
@@ -103,7 +103,7 @@ local function handle_build(spec)
 
     vim.schedule(function()
         vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
-        local response = vim.system(vim.split(spec.data.build, " "), { cwd = package_fpath }):wait()
+        local response = vim.system(vim.split(spec.data.build, " "), { cwd = path }):wait()
         vim.notify(
             ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
             response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
@@ -113,13 +113,8 @@ end
 
 local M = {}
 
-M.build = function(specs)
-    if not specs or #specs == 0 then
-        specs, _ = get_specs_and_names()
-    end
-    for _, spec in ipairs(specs) do
-        handle_build(spec)
-    end
+M.build = function(spec, path)
+    handle_build(spec, path)    
 end
 
 ---@param spec_names string[]

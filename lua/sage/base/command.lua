@@ -82,11 +82,11 @@ function c:run_autocmds()
 
             local n_spec = Pack.specs.normalize
 
-            if kind == "install" then
-                local confirmed = vim.fn.confirm("Install plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
-                if not confirmed then
-                    error("Install cancelled for " .. n_spec.name)
-                end
+          if kind == "install" then
+            --    local confirmed = vim.fn.confirm("Install plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
+              --  if not confirmed then
+                --    error("Install cancelled for " .. n_spec.name)
+                 -- end
                 Pack:set_status("installing")
             elseif kind == "delete" then
                 local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
@@ -106,24 +106,41 @@ function c:run_autocmds()
 
     local group = vim.api.nvim_create_augroup("Sage", { clear = true })
 
-    autocmd("PackChanged", {
-        callback = function(args)
-            local kind = args.data.kind ---@type string
-
-            if kind == "install" or kind == "update" then
-                local spec = args.data.spec ---@type Sage.Spec
+    local hooks = function(ev)
+        local name, kind = ev.data.spec.name, ev.data.kind
+         if kind == "install" or kind == "update" then
+            local spec = ev.data.spec ---@type Sage.Spec
+            if spec.data and spec.data.build ~= nil then
                 local name = spec.name
                 local Pack = manager.packs[name]
-                Pack.set_path(args.data.path)
-
-                commands.build({ spec })
+                Pack.set_path(ev.data.path)
+                commands.build({ spec }, ev.data.path)
             end
-        end,
-        group = group,
-    })
+        end
+    end
+    
+    autocmd("PackChanged", { callback = hooks, group = group })
 
     autocmd("PackChanged", {
         callback = function(ev)
+            -- {
+              -- buf = 7,
+              -- data = {
+                -- active = false,
+                -- kind = "install",
+                -- path = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim",
+                -- spec = {
+                  -- name = "ashen.nvim",
+                 -- src = "https://github.com/ficcdaf/ashen.nvim"
+               -- }
+             -- },
+              -- event = "PackChanged",
+              -- file = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim",
+              -- group = 16,
+              -- id = 30,
+              -- match = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim"
+            -- }
+
             local kind = ev.data.kind
             local spec = ev.data.spec
             local pack_path = ev.data.path

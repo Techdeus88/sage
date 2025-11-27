@@ -206,8 +206,8 @@ function Manager:create_timeout_timer(state, on_complete)
     return timer
 end
 
--- Handle individual pack load callback
-function Manager:handle_pack_load(data, state, on_complete, delay_install_activate)
+-- FIX 1: Remove delay_install_activate parameter (unused and causes confusion)
+function Manager:handle_pack_load(data, state, on_complete)
     local Utils = self.utils
     local Bus = self.bus
 
@@ -238,11 +238,10 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
                 string.format("Failed to packadd '%s': %s", pack_name, tostring(packadd_err)),
                 vim.log.levels.WARN
             )
-            -- Don't fail the pack entirely, just log the warning
         end
     end)
 
-    -- Record timing (time since this pack's load was called)
+    -- Record timing
     local install_duration_ms = (vim.loop.hrtime() - pack_start_time) / 1e6
     pack.times = pack.times or {}
     pack.times.install_duration = string.format("%.2f", install_duration_ms)
@@ -251,9 +250,9 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
     pack:set_active(data)
     pack:set_path(data.path)
 
-    -- Emit install finish event (this triggers task lifecycle via system.lua listener)
+    -- ✅ FIX: Remove nested vim.schedule + vim.defer_fn
+    -- Emit install finish event immediately
     vim.schedule(function()
-        vim.defer_fn(function()
         Bus.emit("pack:install:finish", {
             name = pack_name,
             status = "installed",
@@ -262,14 +261,11 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
             pack = pack,
             stage = pack._install_stage,
         })
-                    end, delay_install_activate)
     end)
 
-    -- TASK INTEGRATION: Run the validate task now that pack is installed
-    -- The task system will automatically run tasks in order starting with validate
+    -- Run task lifecycle
     vim.schedule(function()
         if pack.lifecycle then
-            -- This will run validate -> install (which checks pack.installed) -> build/hooks/config
             local ok, err = pack.lifecycle:run_next()
             if not ok and err ~= "no more tasks" then
                 Utils.safe_notify(
@@ -279,12 +275,6 @@ function Manager:handle_pack_load(data, state, on_complete, delay_install_activa
             end
         end
     end)
-
-    -- NOTE: Status is NOT set here - the Loaders will manage status transitions:
-    -- - "now" stage: "installing" → "loading" → "loaded"
-    -- - "later" stage: "installing" → "pending" → "loading" → "loaded"
-    -- - "lazy" stage: "installing" → "lazy" → "loading" → "loaded" (on trigger)
-    -- - "disabled" stage: "installing" → "disabled"
 
     -- Increment completion counter
     state.completed = state.completed + 1
@@ -385,10 +375,9 @@ end
 function Manager:install_activate_batch(pack_groups, on_complete)
     local Utils = self.utils
     local Bus = self.bus
-    local to_confirm = self.opts.add_opts.confirm
-    print(to_confirm and "yes" or "no")
-
-    local delay_install_activate = 100
+    
+    -- ✅ FIX: Get confirmation setting from config
+    local should_confirm = self.opts.add_opts and self.opts.add_opts.confirm or false
 
     -- Flatten all pack groups into single array
     local all_packs = self:flatten_pack_groups(pack_groups)
@@ -418,21 +407,19 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         start_time = vim.loop.hrtime(),
     }
 
-    -- Emit install:start events for all packs
+    -- ✅ FIX: Remove nested vim.schedule + vim.defer_fn for install:start events
     for _, pack in ipairs(all_packs) do
         local name = pack.specs.normalize.name
         pack:set_status("installing")
 
         vim.schedule(function()
-            vim.defer_fn(function()
-                Bus.emit("pack:install:start", {
-                    name = name,
-                    status = "installing",
-                    message = "Installing",
-                    pack = pack,
-                    stage = pack._install_stage,
-                })
-            end, delay_install_activate)
+            Bus.emit("pack:install:start", {
+                name = name,
+                status = "installing",
+                message = "Installing",
+                pack = pack,
+                stage = pack._install_stage,
+            })
         end)
     end
 
@@ -444,22 +431,23 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     -- Create timeout timer
     state.timer = self:create_timeout_timer(state, on_complete)
 
-    -- Execute batch installation
+    -- ✅ FIX: Execute batch installation with correct confirm setting
     local ok, err = pcall(vim.pack.add, n_specs, {
-        confirm = to_confirm,
+        confirm = should_confirm,  -- ✅ Use config value, not hardcoded false!
         load = function(data)
-            self:handle_pack_load(data, state, on_complete, delay_install_activate)
+            self:handle_pack_load(data, state, on_complete)  -- ✅ Removed 4th param
         end,
     })
 
-    -- Handle immediate failure (before any load callbacks)
+    -- Handle immediate failure
     if not ok then
-        self:handle_install_failure(err, all_packs, state, on_complete, delay_install_activate)
+        self:handle_install_failure(err, all_packs, state, on_complete)  -- ✅ Removed 5th param
         return false
     end
 
     return true
 end
+
 -- ============================================================================
 -- Create all packs from specs (no artificial delays)
 -- ============================================================================
