@@ -6,7 +6,7 @@ local init_global = function()
         plugin_path = function(name)
             return string.format("%s/%s", Sage.plugins_path, name)
         end,
-        sage_debug = vim.env.SAGE_DEBUG == 1,
+        sage_debug = vim.env.SAGE_DEBUG == 1 or false,
     }
 
     _G.Sage = global

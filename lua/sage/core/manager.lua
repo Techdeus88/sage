@@ -207,7 +207,7 @@ function Manager:create_timeout_timer(state, on_complete)
 end
 
 -- Handle individual pack load callback
-function Manager:handle_pack_load(data, state, on_complete)
+function handle_pack_load(data, state, on_complete, delay_install_activate)
     local Utils = self.utils
     local Bus = self.bus
 
@@ -253,6 +253,7 @@ function Manager:handle_pack_load(data, state, on_complete)
 
     -- Emit install finish event (this triggers task lifecycle via system.lua listener)
     vim.schedule(function()
+        vim.defer_fn(function()
         Bus.emit("pack:install:finish", {
             name = pack_name,
             status = "installed",
@@ -261,6 +262,7 @@ function Manager:handle_pack_load(data, state, on_complete)
             pack = pack,
             stage = pack._install_stage,
         })
+                    end, delay_install_activate)
     end)
 
     -- TASK INTEGRATION: Run the validate task now that pack is installed

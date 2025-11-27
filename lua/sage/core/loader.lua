@@ -11,7 +11,7 @@ function Loader.new(container, opts)
     self.bus = container:resolve("bus")
     self.utils = container:resolve("utils")
     self.timers = {}
-    self.autocmds = {} -- ✅ CRITICAL: This was missing!
+    self.autocmds = {}
     return self
 end
 

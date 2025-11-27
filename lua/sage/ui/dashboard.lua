@@ -387,7 +387,7 @@ function Dashboard:render_header()
 end
 
 -- ============================================================================
--- Tab Filtering (FIXED: Added "now" and "later" filters)
+-- Tab Filtering
 -- ============================================================================
 function Dashboard:refresh_for_tab()
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
