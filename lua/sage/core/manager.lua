@@ -167,8 +167,8 @@ function Manager:create_all_packs(specs)
     local packs = {}
     local seen_names = {}
     local create_start = vim.loop.hrtime()
-
-    for _, spec in ipairs(specs) do
+    local delay = 25
+    for i, spec in ipairs(specs) do
         local pack_create_start = vim.loop.hrtime()
 
         local pack = self:create_pack(spec)
@@ -188,11 +188,26 @@ function Manager:create_all_packs(specs)
         self.packs[name] = pack
         table.insert(packs, pack)
 
+        -- ✅ RESTORED: Emit pack:created event for each pack
+        -- This allows dashboard to track individual pack creation
+        vim.schedule(function()
+            vim.defer_fn(function()
+                Bus.emit("pack:created", {
+                    name = name,
+                    stage = pack:get_stage(),
+                    status = "created",
+                    message = ("%s created"):format(name),
+                    pack = pack,
+                })
+            end, delay * i)
+        end)
+
         ::continue::
     end
 
     local total_create_time = (vim.loop.hrtime() - create_start) / 1e6
 
+    -- Emit batch creation complete event
     vim.schedule(function()
         Bus.emit("pack:all_created", {
             num_packs = #packs,
@@ -256,9 +271,13 @@ function Manager:install_activate_batch(pack_groups, on_complete)
         return p.specs.normalize
     end, all_packs)
 
-    -- ✅ FIX: Call vim.pack.add WITHOUT load callback
+    -- ✅ FIX: Call vim.pack.add with load = false to prevent auto-packadd
+    -- We want to control when each pack gets loaded based on its stage
     local ok, err = pcall(function()
-        vim.pack.add(n_specs, { confirm = should_confirm, load = false })
+        vim.pack.add(n_specs, { 
+            confirm = should_confirm,
+            load = false  -- ✅ CRITICAL: Prevent automatic packadd
+        })
     end)
 
     if not ok then
@@ -293,7 +312,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
             local pack_name = pack.specs.normalize.name
 
             -- Check if pack was installed
-            local pack_info = vim.pack.get(pack_name)
+            local pack_info = vim.pack.get({ pack_name })
             if not pack_info then
                 Utils.safe_notify(
                     string.format("Pack '%s' not found after installation", pack_name),
@@ -309,8 +328,12 @@ function Manager:install_activate_batch(pack_groups, on_complete)
             pack:set_active(pack_info)
             pack:set_path(pack_info.path)
 
-            -- Packadd
-            pcall(vim.cmd, "packadd " .. pack_name)
+            -- ✅ DO NOT packadd here - let the Loader handle it based on stage
+            -- The loader will call packadd at the appropriate time:
+            -- - "now" stage: immediately
+            -- - "lazy" stage: on trigger
+            -- - "later" stage: after delay/idle/vimenter
+            -- - "disabled" stage: never
 
             -- Record timing
             pack.times = pack.times or {}
