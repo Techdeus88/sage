@@ -791,7 +791,7 @@ function Manager:create_all_packs(specs)
                     message = "Created",
                     pack = pack,
                 })
-            end, 50 * i)
+            end, 100 * i)
         end)
 
         ::continue::
@@ -923,6 +923,7 @@ function Manager:run_packs()
     local Utils = self.utils
     local Bus = self.bus
     local Dashboard = self.container:resolve("dashboard")
+    local DashboardManager = self.container:resolve("dashboard_manager")
 
     local run_start = vim.loop.hrtime()
 
@@ -939,15 +940,12 @@ function Manager:run_packs()
         vim.log.levels.INFO
     )
 
-    -- Determine if we should show dashboard
-    local show_dashboard = should_show_dashboard(all_specs, self.opts)
-
-    if show_dashboard then
-        vim.defer_fn(function()
-            Dashboard:open()
-        end, 500)
-    end
-
+    -- NEW: build context + let the strategy decide
+    local ctx
+    if DashboardManager then
+        ctx = DashboardManager:build_context(all_specs, self.packs)
+        DashboardManager:show_immediately(ctx)    
+    end    
     -- Create all packs (no artificial delays)
     local all_packs = self:create_all_packs(all_specs)
 

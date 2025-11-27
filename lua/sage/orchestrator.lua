@@ -132,21 +132,16 @@ function Orchestrator:init_ui()
     local SageElements = require("sage.ui.elements")
     local SageIcons = require("sage.ui.icons")
 
-    -- Dashboard is the instance itself, not a class
-    self.dashboard = SageDashboard
-
-    self.container:register("dashboard", function()
-        return self.dashboard
-    end, { lazy = false })
-
-    self:log("Orchestrator", "SageUI initialized")
 
     -- Initialize the dashboard with options
-    self.dashboard:init(self.container, SageElements, SageIcons, {
-        lock_windows = self.opts.lock_windows,
-        auto_focus = self.opts.auto_focus,
-    })
+    SageDashboard:init(self.container, SageElements, SageIcons, self.opts)
+    self.container:register("dashboard", Dashboard)
 
+    -- NEW: wire the strategy object
+    local dm = DashboardManager.new(opts)
+    dm.dashboard = Dashboard        -- give it the UI
+    self.container:register("dashboard_manager", dm)
+    
     self:log("Orchestrator", "SageDashboard registered")
 end
 
