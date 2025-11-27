@@ -689,7 +689,7 @@ function Manager:run_packs()
     local run_start = vim.loop.hrtime()
 
     -- Load specs from directory
-    local all_specs = self:load_specs(self.opts.directory)
+    local all_specs = self:load_specs(self.opts.plugins_rpath)
 
     if #all_specs == 0 then
         Utils.safe_notify("No pack specs found, nothing to do", vim.log.levels.INFO)

@@ -5,7 +5,7 @@ M.opts = { ---@class Sage.Config.Opts
     config_path = vim.fn.stdpath("config"),
     data_path = vim.fn.stdpath("data"),
     packages_rpath = "/site/pack/core/opt/",
-    sage_rpath = "/site/pack/managers/start/sage/", -- ?
+    sage_rpath = "/site/pack/core/start/sage/", -- ?
     plugins_rpath = "/lua/packs/", -- starting point ->  aka directory to load packs from
 
     add_opts = { confirm = false }, ---@type vim.pack.keyset.add

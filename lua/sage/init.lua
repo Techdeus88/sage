@@ -18,7 +18,7 @@ local M = {}
 -- FILE:sage/init.lua
 -- Main Sage initialization
 -- ============================================================================
-local function setup_monitoring(bus) end
+-- local function setup_monitoring(bus) end
 
 local function setup_orchestrator(opts)
     local Orchestrator = require("sage.orchestrator")
@@ -28,9 +28,7 @@ local function setup_orchestrator(opts)
 end
 
 function M.setup(opts)
-    local commands = require("sage.commands")
     local config = require("sage.config")
-
     config.setup(opts)
 
     local orchestrator = setup_orchestrator(config.opts)
