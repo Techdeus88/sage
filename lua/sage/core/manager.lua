@@ -382,9 +382,11 @@ end
 -- ============================================================================
 -- Batch installation with state management
 -- ============================================================================
-function Manager:install_activate_batch(pack_groups, on_complete, to_confirm)
+function Manager:install_activate_batch(pack_groups, on_complete)
     local Utils = self.utils
     local Bus = self.bus
+    local to_confirm = self.opts.add_opts.confirm
+    print(to_confirm and "yes" or "no")
 
     local delay_install_activate = 100
 
@@ -629,7 +631,6 @@ function Manager:run_packs()
     local Utils = self.utils
     local Bus = self.bus
     local Dashboard = self.container:resolve("dashboard")
-    local confirm_opt = self.opts.add_opt.confirm
 
     local run_start = vim.loop.hrtime()
 
@@ -748,7 +749,7 @@ function Manager:run_packs()
                 },
             })
         end)
-    end, confirm_opt)
+    end)
 
     if not install_ok then
         Utils.safe_notify("Failed to start batch installation", vim.log.levels.ERROR)
