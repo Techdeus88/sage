@@ -88,12 +88,12 @@ function Pack:set_tags(tags)
 end
 
 function Pack:set_stage(stage)
-    self.specs.normalize.stage = stage
+    self.specs.normalize.data.on.stage = stage
     return self
 end
 
 function Pack:get_stage()
-    return self.specs.normalize.stage
+    return self.specs.normalize.data.on.stage
 end
 
 function Pack:get_path()

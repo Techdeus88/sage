@@ -128,6 +128,7 @@ end
 function Manager:create_all_packs(specs)
     local Utils = self.utils
     local Bus = self.bus
+    local delay = 115
 
     if #specs == 0 then
         Utils.safe_notify("No pack specs to create", vim.log.levels.INFO)
@@ -138,11 +139,11 @@ function Manager:create_all_packs(specs)
     local seen_names = {}
     local create_start = vim.loop.hrtime()
 
-    for _, spec in ipairs(specs) do
+    for i, spec in ipairs(specs) do
         local pack_create_start = vim.loop.hrtime()
 
         local pack = self:create_pack(spec)
-        local name = pack.specs.normalize.name
+        local name = pack.name
 
         if seen_names[name] then
             Utils.safe_notify(string.format("Duplicate pack '%s' found (skipping)", name), vim.log.levels.WARN)
@@ -161,13 +162,15 @@ function Manager:create_all_packs(specs)
         -- ✅ RESTORED: Emit pack:created event for each pack
         -- This allows dashboard to track individual pack creation
         vim.schedule(function()
+                vim.defer_fn(function()
             Bus.emit("pack:created", {
                 name = name,
+                stage = pack:get_stage(),
                 status = "created",
                 message = "Pack created",
                 pack = pack,
-                stage = pack:get_stage(),
             })
+            end, delay * i)
         end)
 
         ::continue::

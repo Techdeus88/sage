@@ -95,6 +95,9 @@ local VALID_PACK_DATA_KEYS = {
     before = true,
     after = true,
     on = true,
+    source = true,
+    enabled = true,
+    priority = true,
 }
 
 -- spec.data.on keys
@@ -108,6 +111,7 @@ local VALID_ON_KEYS = {
     cmds = true,
     cmd = true,
     keys = true,
+    stage = true,
 }
 
 -- ============================================================================
@@ -333,7 +337,7 @@ local function normalize_spec(spec)
 
     local prefix = "https://github.com/"
     local source = spec.src or spec[1]
-    local name = spec.name or extract_name(n_spec.src)
+    local name = spec.name or extract_name(source)
     local version = spec.version
     local disabled = spec.enabled ~= nil and spec.enabled == false
     local stage = determine_stage(spec, M.stages)
@@ -350,16 +354,8 @@ local function normalize_spec(spec)
     n_spec.data = {}
     n_spec.data.enabled = not disabled
     -- Move config-related fields into data
-    if spec.on then
-        n_spec.data.on = vim.deepcopy(spec.on)
-    end
-
     if source then
         n_spec.data.source = source
-    end
-
-    if stage then
-        n_spec.data.stage = stage
     end
 
     if spec.priority then
@@ -384,6 +380,14 @@ local function normalize_spec(spec)
 
     if spec.depends then
         n_spec.data.depends = spec.depends
+    end
+
+    if spec.on then
+        n_spec.data.on = vim.deepcopy(spec.on)
+    end
+
+    if stage then
+        n_spec.data.on.stage = stage
     end
 
     return n_spec
