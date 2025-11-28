@@ -18,7 +18,6 @@ function Logger.new(opts)
     self.log_buf = nil
     self.log_win = nil
     self.last_rendered_index = 0
-    self.bus = nil -- Will be set after container is initialized
     return self
 end
 
@@ -27,10 +26,6 @@ function Logger:get_instance(opts)
         Logger._singleton = Logger.new(opts)
     end
     return Logger._singleton
-end
-
-function Logger:set_bus(bus)
-    self.bus = bus
 end
 
 function Logger:log_event(level, source, msg)
@@ -53,16 +48,6 @@ function Logger:log_event(level, source, msg)
     if #self.logs > self.max_log then
         table.remove(self.logs, 1)
         self.last_rendered_index = math.max(0, self.last_rendered_index - 1)
-    end
-
-    -- Emit to event bus
-    if self.bus then
-        self.bus.emit("logger:log", {
-            level = level,
-            source = source,
-            message = msg,
-            timestamp = vim.loop.hrtime(),
-        })
     end
 
     self:render_logs()

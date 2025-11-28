@@ -165,7 +165,7 @@ function Manager:install_batch(packs, on_complete)
 
             -- Find the corresponding pack object
             local pack = self.packs[spec.name]
-            
+
             if not pack then
                 return
             end
@@ -274,9 +274,8 @@ function Manager:create_all_packs(specs)
     local seen_names = {}
     local create_start = vim.loop.hrtime()
 
-    for _, spec in ipairs(specs) do
+    for i, spec in ipairs(specs) do
         local pack_create_start = vim.loop.hrtime()
-        local i = math.random(5, 15)
 
         local pack = self:create_pack(spec)
         local name = pack.name
@@ -295,15 +294,13 @@ function Manager:create_all_packs(specs)
         self.packs[name] = pack
         table.insert(packs, pack)
 
-        vim.defer_fn(function()
-            Bus.emit("pack:created", {
-                name = name,
-                stage = pack:get_stage(),
-                status = "created",
-                message = "Pack created",
-                pack = pack,
-            })
-        end, delay * i)
+        self.utils.emit_delayed("pack:created", {
+            name = name,
+            stage = pack:get_stage(),
+            status = "created",
+            message = "Pack created",
+            pack = pack,
+        }, delay * i)
 
         ::continue::
     end
@@ -343,6 +340,14 @@ function Manager:run_packs()
     if show_dashboard then
         vim.defer_fn(function()
             Dashboard:open()
+
+            -- Focus the dashboard window after it opens
+            vim.defer_fn(function()
+                local win = Dashboard.win or Dashboard:get_window("content")
+                if win and vim.api.nvim_win_is_valid(win) then
+                    vim.api.nvim_set_current_win(win)
+                end
+            end, 50) -- Small delay to ensure window is fully created
         end, 300)
     end
 

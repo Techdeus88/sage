@@ -29,13 +29,21 @@ end
 function Orchestrator:init_base()
     require("sage.base.global").init()
     require("sage.base.notify").init()
+
+    local Logger = require("sage.base.logger")
+    self.logger = Logger:get_instance(self.opts)
+    self.container:register("logger", function()
+        return self.logger
+    end, { lazy = false })
+
     local Utils = require("sage.base.utils")
+    Utils.init(self.container)
 
     self.container:register("utils", function()
         return Utils
     end)
 
-    self:log("Orchestrator", "Base initialized (global, base & utils)")
+    self:log("Orchestrator", "Base initialized (global, base, logger & utils)")
 end
 
 function Orchestrator:init_container()
@@ -59,19 +67,6 @@ function Orchestrator:init_bus()
         return self.bus
     end, { lazy = false })
     self:log("Orchestrator", "EventBus initialized")
-end
-
-function Orchestrator:init_logger()
-    if not self.bus then
-        error("Bus must be initialized before logger")
-    end
-    local Logger = require("sage.base.logger")
-    self.logger = Logger:get_instance(self.opts)
-    self.logger:set_bus(self.bus)
-    self.container:register("logger", function()
-        return self.logger
-    end, { lazy = false })
-    self:log("Orchestrator", "Logger initialized")
 end
 
 function Orchestrator:init_manager()
@@ -141,11 +136,11 @@ function Orchestrator:init_ui()
 
     -- NEW: wire the strategy object
     local dm = SageDashboardManager.new(self.opts)
-    dm.dashboard = SageDashboard        -- give it the UI
+    dm.dashboard = SageDashboard -- give it the UI
     self.container:register("dashboard_manager", function()
         return dm
     end, { lazy = true })
-    
+
     self:log("Orchestrator", "SageDashboard w/ manager registered")
 end
 
@@ -254,7 +249,6 @@ function Orchestrator:execute_initialization()
     self:init_container()
     self:init_base()
     self:init_bus()
-    self:init_logger()
     self:init_manager()
 
     self:init_ui()

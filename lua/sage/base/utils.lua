@@ -1,9 +1,23 @@
 local U = {}
 
+U.init = function(container)
+    U.container = container
+end
+
 function U.safe_notify(msg, level)
     vim.schedule(function()
         vim.notify(msg, level)
     end)
+end
+
+-- In utils or manager
+function U.emit_delayed(event, data, delay)
+    local bus = U.container:resolve("bus")
+    vim.defer_fn(function()
+        vim.schedule(function()
+            bus.emit(event, data)
+        end)
+    end, delay)
 end
 
 function U.count_pack_directories(pack_path)

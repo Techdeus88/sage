@@ -136,6 +136,12 @@ function Dashboard:create_three_pane_layout()
     self:setup_close_keymaps()
 end
 
+---@param window_name
+function Dashboard:get_window(window_name)
+    local name_map = { header = self.header_win, content = self.content_win, footer = self.footer_win }
+    return name_map[window_name]
+end
+
 function Dashboard:lock_windows()
     if not self.config or self.config.lock_windows == false then
         return
@@ -180,13 +186,13 @@ function Dashboard:setup_close_keymaps()
 end
 
 local function get_value(pack, key, level)
-    local n_pack  = pack:get_native()
+    local n_pack = pack:get_native()
     local pack_value
     local n_pack_value
     if level == 1 then
         pack_value = pack[key]
     end
-        return pack_value
+    return pack_value
 end
 
 local function format_table_value(key, val, val_type, indent, max_length)
@@ -265,12 +271,13 @@ function Dashboard:display_pack_comparison(pack_name)
     local header_padding = math.floor((inner_width - #header_text - 2) / 2) -- -2 for border chars
 
     table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗")
-    table.insert(lines, "║ "
+    table.insert(
+        lines,
+        "║ "
             .. string.rep(" ", header_padding)
             .. header_text
             .. string.rep(" ", inner_width - header_padding - #header_text - 3)
             .. "║"
-
     )
     table.insert(lines, "╚" .. string.rep("═", inner_width - 2) .. "╝")
     table.insert(lines, "")
@@ -279,8 +286,8 @@ function Dashboard:display_pack_comparison(pack_name)
     local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)" }
     local top_spec = {
         name = pack_name,
-        order = {"name", "src", "active", "installed", "loaded", "version", "status"},
-        level = 1
+        order = { "name", "src", "active", "installed", "loaded", "version", "status" },
+        level = 1,
     }
     content_lines = vim.list_extend(content_lines, format_table(pack_name, pack, content_lines, top_spec, 0, 8, 1))
     for _, content_text in ipairs(content_lines) do
@@ -322,7 +329,6 @@ function Dashboard:display_pack_comparison(pack_name)
     for _, line in ipairs(lines) do
         table.insert(padded_lines, "  " .. line) -- Add consistent left padding
     end
-
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
@@ -1171,7 +1177,7 @@ function Dashboard:open()
         and self.content_win
         and vim.api.nvim_win_is_valid(self.content_win)
     then
-       self:focus_content_window()
+        self:focus_content_window()
         return
     end
 
@@ -1310,7 +1316,6 @@ function Dashboard:listen()
         row.message:update(data.message)
         self:update_line(row)
         self:resort_rows()
-
     end)
 
     register("pack:config:start", function(data)
