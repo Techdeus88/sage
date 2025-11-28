@@ -1171,7 +1171,7 @@ function Dashboard:open()
         and self.content_win
         and vim.api.nvim_win_is_valid(self.content_win)
     then
-        pcall(vim.api.nvim_set_current_win, self.content_win)
+       self:focus_content_window()
         return
     end
 
@@ -1264,7 +1264,9 @@ function Dashboard:listen()
     register("pack:all_created", function()
         vim.schedule(function()
             self:sync_all_packs()
+            self:resort_rows()
             self:render_footer()
+            self:focus_content_window()
         end)
     end)
 
@@ -1308,6 +1310,7 @@ function Dashboard:listen()
         row.message:update(data.message)
         self:update_line(row)
         self:resort_rows()
+        
     end)
 
     register("pack:config:start", function(data)
