@@ -16,56 +16,6 @@ function TaskSystem.init(deps)
     bus = deps.bus
     logger = deps.logger
 end
--- ============================================================================
--- TASK LIFECYCLE: Only for custom tasks
--- ============================================================================
-function TaskBuilder.create_custom_tasks(spec)
-    local tasks = {}
-    
-    -- Build task (if specified)
-    if spec.data.build then
-        table.insert(tasks, Task.new({
-            id = "build",
-            name = "Build",
-            required = true,
-            fn = function(pack)
-                local path = pack:get_path()
-                local build_cmd = spec.data.build
-                
-                local result = vim.system(
-                    vim.split(build_cmd, " "),
-                    { cwd = path }
-                ):wait()
-                
-                if result.code ~= 0 then
-                    error("Build failed: " .. (result.stderr or ""))
-                end
-            end
-        }))
-    end
-    
-    -- Before hook
-    if spec.data.before then
-        table.insert(tasks, Task.new({
-            id = "before",
-            name = "Before Hook",
-            required = false,
-            fn = spec.data.before
-        }))
-    end
-    
-    -- After hook  
-    if spec.data.after then
-        table.insert(tasks, Task.new({
-            id = "after",
-            name = "After Hook",
-            required = false,
-            fn = spec.data.after
-        }))
-    end
-    
-    return tasks
-end
 
 -- Wire lifecycle ONLY if there are custom tasks
 function TaskSystem.wire_pack(pack)

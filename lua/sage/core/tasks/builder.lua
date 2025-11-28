@@ -207,7 +207,6 @@ function TaskBuilder.create_default_tasks()
     return tasks
 end
 
-
 -- ============================================================================
 -- TASK LIFECYCLE: Only for custom tasks
 -- ============================================================================
@@ -258,6 +257,5 @@ function TaskBuilder.create_custom_tasks(spec)
     
     return tasks
 end
-
 
 return TaskBuilder
