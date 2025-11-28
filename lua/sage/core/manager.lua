@@ -438,7 +438,6 @@ function Manager:run_packs()
     end
 
     local sorted = Utils.sort_packs(all_packs)
-    print(vim.inspect(vim.tbl_keys(sorted)))
     local by_stage = {
         now = sorted["now"] or {},
         lazy = sorted["lazy"] or {},
@@ -457,72 +456,14 @@ function Manager:run_packs()
         vim.log.levels.INFO
     )
 
-    local install_ok = self:install_activate_batch(by_stage, function(success, result)
-        if not success then
-            Utils.safe_notify(
-                string.format(
-                    "Installation failed: %s (elapsed: %.2fms)",
-                    result.error or "unknown error",
-                    result.elapsed_ms or 0
-                ),
-                vim.log.levels.ERROR
-            )
-
-            vim.schedule(function()
-                Bus.emit("pack:run_complete", {
-                    success = false,
-                    error = result.error,
-                    elapsed_ms = result.elapsed_ms,
-                    installed_count = result.installed_count or 0,
-                    failed_count = result.failed_count or #all_packs,
-                })
-            end)
-            return
-        end
-
-        if result.failed_count and result.failed_count > 0 then
-            Utils.safe_notify(
-                string.format(
-                    "Installation completed with %d failures (%.2fms): %s",
-                    result.failed_count,
-                    result.elapsed_ms,
-                    table.concat(result.failed_packs or {}, ", ")
-                ),
-                vim.log.levels.WARN
-            )
-        else
-            Utils.safe_notify(
-                string.format("All %d packs installed successfully (%.2fms)", result.installed_count, result.elapsed_ms),
-                vim.log.levels.INFO
-            )
-        end
-
-        local stages_ok = self:process_stages(by_stage)
-
-        local total_elapsed = (vim.loop.hrtime() - run_start) / 1e6
-
-        vim.schedule(function()
-            Bus.emit("pack:run_complete", {
-                success = stages_ok,
-                total_duration = string.format("%.2f", total_elapsed),
-                installed_count = result.installed_count,
-                failed_count = result.failed_count,
-                failed_packs = result.failed_packs,
-                by_stage = {
-                    now = #by_stage.now,
-                    lazy = #by_stage.lazy,
-                    later = #by_stage.later,
-                    disabled = #by_stage.disabled,
-                },
-            })
-        end)
-    end)
-
+    local install_ok = self:install_and_classify_batch(all_packs)
+    
     if not install_ok then
         Utils.safe_notify("Failed to start batch installation", vim.log.levels.ERROR)
         return {}
     end
 
+    initiate_stage_loading(by_stage)
     return all_packs
 end
 
