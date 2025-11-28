@@ -229,7 +229,7 @@ local function format_table_value(key, val, val_type, indent, max_length)
     return f_value
 end
 
-local function format_table(lines, tbl_order, indent, max_length, num_tables)
+local function format_table(name, lines, tbl_order, indent, max_length, num_tables)
     lines = lines or {}
     max_length = max_length or 10
     indent = indent or 0
@@ -239,7 +239,7 @@ local function format_table(lines, tbl_order, indent, max_length, num_tables)
     end
 
     for _, key in tbl_order do
-        local s_value = get_value(key, 1)
+        local s_value = get_value(name, key, tbl_order.level)
     end
     
 
@@ -279,9 +279,7 @@ function Dashboard:display_pack_comparison(pack_name)
     local header_text = string.format("Pack: %s", pack_name)
     local header_padding = math.floor((inner_width - #header_text - 2) / 2) -- -2 for border chars
 
-    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗")
-    table.insert(
-        lines,
+    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗") v7i0[l?  8=jnkmlporbew        lines,
         "║ "
             .. string.rep(" ", header_padding)
             .. header_text
@@ -294,8 +292,12 @@ function Dashboard:display_pack_comparison(pack_name)
 
     -- Content
     local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)" }
-    local top_spec = { "name", "src", "active", "installed", "loaded", "version", "stage", "status" }
-    content_lines = vim.list_extend(content_lines, format_table(content_lines, top_spec, 0, 8, 1))
+    local top_spec = { 
+        name = pack_name, 
+        order = {"name", "src", "active", "installed", "loaded", "version", "stage", "status"}, 
+        level = 1 
+    hhhhhhhhhhhhhhhhhkmmmmmmmmmmmmmmmmmmmmmmmmnmxlk;;;;;;j}
+    content_lines = vim.list_extend(content_lines, format_table(pack_name, content_lines, top_spec, 0, 8, 1))
     for _, content_text in ipairs(content_lines) do
         local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
         table.insert(lines, string.rep(" ", content_padding) .. content_text)
