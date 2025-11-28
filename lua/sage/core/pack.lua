@@ -22,6 +22,7 @@ function Pack.new(spec)
         install_duration = 0,
         config_duration = 0,
     }
+    self.path = ""
 
     local v_spec = {
         active = false,
@@ -97,8 +98,8 @@ function Pack:get_stage()
 end
 
 function Pack:get_path()
-    if self.specs.vim.path ~= "" then
-        return self.specs.vim.path
+    if self.path ~= "" then
+        return self.path
     end
     return nil
 end

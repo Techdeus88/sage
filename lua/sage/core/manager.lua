@@ -126,7 +126,7 @@ function Manager:install_and_classify_batch(packs)
     local Bus = self.bus
 
     local sorted = self.utils.sort_packs(packs)
-    print(vim.inspect(sorted))
+
     -- 1. Classify packs by stage BEFORE installation
     local by_stage = {
         now = sorted["now"],
@@ -150,8 +150,11 @@ function Manager:install_and_classify_batch(packs)
     end)
 end
 
+
 function Manager:install_batch(packs, on_complete)
     local Bus = self.bus
+    local delay = 75
+    local index = math.random(1, 5)
 
     if #packs == 0 then
         if on_complete then
@@ -164,7 +167,7 @@ function Manager:install_batch(packs, on_complete)
     local completed_count = 0
     local total_count = #packs
     local pack_lookup = {}
-    
+
     -- Build lookup table: spec name -> pack object
     for _, pack in ipairs(packs) do
         pack_lookup[pack.name] = pack
@@ -189,25 +192,26 @@ function Manager:install_batch(packs, on_complete)
     end, packs)
 
     -- Use the callback! Called once per pack when it completes
-    vim.pack.add(install_specs, { 
-        confirm = self.opts.add_opts.confirm, 
-        load = false,
-        callback = function(spec, success, path)
-            local pack = pack_lookup[spec.name]
-            
+    vim.pack.add(install_specs, {
+        confirm = self.opts.add_opts.confirm,
+        load = function(ev)
+            local path = ev.path
+            local spec = ev.spec
+            local pack = self.packs[spec.name]
+
             if not pack then
                 return -- Shouldn't happen, but be safe
             end
-            
+
             local now = vim.loop.hrtime()
             local install_ms = 0
-            
+
             if pack.times.install_start then
                 install_ms = (now - pack.times.install_start) / 1e6
                 pack.times.install_duration = string.format("%.2f", install_ms)
             end
-            
-            if success and path then
+
+            if path then
                 -- ✅ Installation succeeded
                 pack.installed = true
                 pack:set_path(path)
@@ -239,16 +243,16 @@ function Manager:install_batch(packs, on_complete)
                     })
                 end)
             end
-            
+
             -- Track completion
             completed_count = completed_count + 1
-            
+
             if completed_count >= total_count and on_complete then
                 -- All packs done (success or failure)
-                local all_success = vim.tbl_filter(function(p) 
-                    return p.installed 
+                local all_success = vim.tbl_filter(function(p)
+                    return p.installed
                 end, packs)
-                
+
                 on_complete(#all_success == total_count)
             end
         end
@@ -266,9 +270,9 @@ function Manager:initiate_stage_loading(by_stage)
             Loader:load_stage("later", by_stage.later, function()
                 Loader:load_stage("disabled", by_stage.disabled, function()
                     vim.schedule(function()
-                        vim.defer_fn(function()
+                        vim.schedule(function()
                             Bus.emit("pack:all_stages_complete")
-                        end, delay + 50)
+                        end)
                     end)
                 end)
             end)
