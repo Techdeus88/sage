@@ -346,12 +346,12 @@ local function normalize_spec(spec)
     local n_spec = {}
 
     -- Required fields
-    n_spec.src = prefix .. source
-    n_spec.name = name
-    n_spec.version = version
+    n_spec['src'] = prefix .. source
+    n_spec['name'] = name
+    n_spec['version'] = version
 
     -- Initialize data container (arbitrary data)
-    n_spec.data = {}
+    n_spec['data'] = {}
     n_spec.data.enabled = not disabled
     -- Move config-related fields into data
     if source then

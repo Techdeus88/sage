@@ -283,7 +283,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
             local pack_name = pack.specs.normalize.name
 
             -- Check if pack was installed
-            local pack_info = vim.pack.get(pack_name)
+            local pack_info = vim.pack.get({pack_name})
             if not pack_info then
                 Utils.safe_notify(
                     string.format("Pack '%s' not found after installation", pack_name),
@@ -478,13 +478,13 @@ function Manager:run_packs()
     end
 
     local all_packs = self:create_all_packs(all_specs)
-
     if #all_packs == 0 then
         Utils.safe_notify("No packs created successfully", vim.log.levels.WARN)
         return {}
     end
 
     local sorted = Utils.sort_packs(all_packs)
+    print(vim.inspect(vim.tbl_keys(sorted)))
     local by_stage = {
         now = sorted["now"] or {},
         lazy = sorted["lazy"] or {},

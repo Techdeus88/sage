@@ -61,8 +61,9 @@ end
 function U.sort_packs(packs)
     local by_stage = {}
     for _, pack in ipairs(packs) do
+        local stage = pack.specs.normalize.data.on.stage
         -- Fix #1: ensure valid stage
-        local stage = type(pack.stage) == "string" and pack.stage or "default"
+        local stage = type(stage) == "string" and stage or "default"
         by_stage[stage] = by_stage[stage] or {}
         table.insert(by_stage[stage], pack)
     end
@@ -80,8 +81,8 @@ function U.sort_packs(packs)
                 lookup[name] = p
                 -- normalize field so deps code can read it later
                 p.name = name
-                p.deps = p.deps or n_spec.dependencies or {}
-                p.priority = p.priority or n_spec.priority or 0
+                p.deps = n_spec.data.depends or {}
+                p.priority = n_spec.data.priority or 0
             else
                 vim.notify("Warning: pack missing name in stage " .. tostring(stage), vim.log.levels.WARN)
             end
