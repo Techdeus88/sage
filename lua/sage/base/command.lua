@@ -87,7 +87,6 @@ function c:run_autocmds()
               --  if not confirmed then
                 --    error("Install cancelled for " .. n_spec.name)
                  -- end
-                Pack:set_status("installing")
             elseif kind == "delete" then
                 local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
                 if not confirmed then
@@ -113,12 +112,12 @@ function c:run_autocmds()
             if spec.data and spec.data.build ~= nil then
                 local name = spec.name
                 local Pack = manager.packs[name]
-                Pack.set_path(ev.data.path)
+                Pack:set_path(ev.data.path)
                 commands.build({ spec }, ev.data.path)
             end
         end
     end
-    
+
     autocmd("PackChanged", { callback = hooks, group = group })
 
     autocmd("PackChanged", {
@@ -185,6 +184,7 @@ function c:run_autocmds()
     --
     --         if dashboard and dashboard.close then
     --             pcall(function()
+    --             o
     --                 dashboard:close()
     --             end)
     --         end

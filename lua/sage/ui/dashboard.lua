@@ -234,7 +234,7 @@ local function format_table(name, pack, lines, tbl_order, indent, max_length, nu
         local f_value = format_table_value(key, p_value, type(p_value), indent, max_length)
         table.insert(lines, f_value)
     end
-    
+
     return lines
 end
 
@@ -264,7 +264,7 @@ function Dashboard:display_pack_comparison(pack_name)
     local header_text = string.format("Pack: %s", pack_name)
     local header_padding = math.floor((inner_width - #header_text - 2) / 2) -- -2 for border chars
 
-    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗") 
+    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗")
     table.insert(lines, "║ "
             .. string.rep(" ", header_padding)
             .. header_text
@@ -277,10 +277,10 @@ function Dashboard:display_pack_comparison(pack_name)
 
     -- Content
     local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)" }
-    local top_spec = { 
-        name = pack_name, 
-        order = {"name", "src", "active", "installed", "loaded", "version", "status"}, 
-        level = 1 
+    local top_spec = {
+        name = pack_name,
+        order = {"name", "src", "active", "installed", "loaded", "version", "status"},
+        level = 1
     }
     content_lines = vim.list_extend(content_lines, format_table(pack_name, pack, content_lines, top_spec, 0, 8, 1))
     for _, content_text in ipairs(content_lines) do
@@ -322,7 +322,7 @@ function Dashboard:display_pack_comparison(pack_name)
     for _, line in ipairs(lines) do
         table.insert(padded_lines, "  " .. line) -- Add consistent left padding
     end
-    
+
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
@@ -1310,7 +1310,7 @@ function Dashboard:listen()
         row.message:update(data.message)
         self:update_line(row)
         self:resort_rows()
-        
+
     end)
 
     register("pack:config:start", function(data)
@@ -1383,8 +1383,6 @@ function Dashboard:listen()
         end
         row.status:update(data.new_status)
         row.status_two:update(data.new_status)
-
-        row.message:update(string.format("%s", data.new_status:upper()))
         self:update_line(row)
     end)
 
