@@ -191,158 +191,112 @@ function Manager:create_all_packs(specs)
 end
 
 -- ============================================================================
--- Batch installation WITHOUT load callback (FIXED)
+-- MANAGER: Installation + Stage Classification
 -- ============================================================================
-function Manager:install_activate_batch(pack_groups, on_complete)
-    local Utils = self.utils
-    local Bus = self.bus
-    local should_confirm = self.opts.add_opts and self.opts.add_opts.confirm or false
-
-    local all_packs = self:flatten_pack_groups(pack_groups)
-
-    if #all_packs == 0 then
-        if on_complete then
-            vim.schedule(function()
-                on_complete(true, {
-                    installed_count = 0,
-                    failed_count = 0,
-                    failed_packs = {},
-                    elapsed_ms = 0,
-                    total_packs = 0,
-                })
-            end)
-        end
-        return true
-    end
-
-    local state = {
-        total = #all_packs,
-        completed = 0,
-        failed = {},
-        start_time = vim.loop.hrtime(),
+function Manager:install_and_classify_batch(packs)
+    -- 1. Classify packs by stage BEFORE installation
+    local by_stage = {
+        now = {},
+        lazy = {},
+        later = {},
+        disabled = {}
     }
+    
+    for _, pack in ipairs(packs) do
+        local stage = pack:get_stage()
+        table.insert(by_stage[stage], pack)
+    end
+    
+    -- 2. Install ALL packs (stage doesn't affect installation)
+    local all_packs = vim.tbl_flatten(vim.tbl_values(by_stage))
+    self:install_batch(all_packs, function(success)
+        if success then
+            -- 3. After install completes, pass to Loader by stage
+            self:initiate_stage_loading(by_stage)
+        end
+    end)
+end
 
-    -- Emit install:start events
-    for _, pack in ipairs(all_packs) do
-        local name = pack.specs.normalize.name
+function Manager:install_batch(packs, on_complete)
+    local pack_names = {}
+    
+    for _, pack in ipairs(packs) do
         pack:set_status("installing")
-
-        vim.schedule(function()
-            Bus.emit("pack:install:start", {
-                name = name,
-                status = "installing",
-                message = "Installing",
-                pack = pack,
-                stage = pack._install_stage,
-            })
-        end)
+        Bus.emit("pack:installing", { name = pack.name, pack = pack })
+        table.insert(pack_names, pack.specs.normalize)
     end
+    
+    -- Submit to vim.pack.add (all at once for efficiency)
+    vim.pack.add(pack_names, { load = false })
+    
+    -- Poll for completion
+    self:poll_installation_complete(packs, on_complete)
+end
 
-    local n_specs = vim.tbl_map(function(p)
-        return p.specs.normalize
-    end, all_packs)
-
-    -- ✅ FIX: Call vim.pack.add with load = false to prevent auto-packadd
-    -- We want to control when each pack gets loaded based on its stage
-    local ok, err = pcall(function()
-        vim.pack.add(n_specs, {
-            confirm = should_confirm,
-            load = false  -- ✅ CRITICAL: Prevent automatic packadd
-        })
-    end)
-
-    if not ok then
-        Utils.safe_notify(
-            string.format("Batch installation failed: %s", tostring(err)),
-            vim.log.levels.ERROR
-        )
-
-        -- Mark all as failed
-        for _, pack in ipairs(all_packs) do
-            pack:set_status("failed")
-            table.insert(state.failed, pack.specs.normalize.name)
-        end
-
-        if on_complete then
-            vim.schedule(function()
-                on_complete(false, {
-                    error = tostring(err),
-                    failed_count = #all_packs,
-                    failed_packs = state.failed,
-                    elapsed_ms = (vim.loop.hrtime() - state.start_time) / 1e6,
-                    total_packs = state.total,
-                })
-            end)
-        end
-        return false
-    end
-
-    -- ✅ Process all packs after vim.pack.add completes
-    vim.schedule(function()
-        for _, pack in ipairs(all_packs) do
-            local pack_name = pack.specs.normalize.name
-
-            -- Check if pack was installed
-            local pack_info = vim.pack.get({pack_name})
-            if not pack_info then
-                Utils.safe_notify(
-                    string.format("Pack '%s' not found after installation", pack_name),
-                    vim.log.levels.WARN
-                )
-                pack:set_status("failed")
-                table.insert(state.failed, pack_name)
-                goto continue
+function Manager:poll_installation_complete(packs, on_complete)
+    local timer = vim.uv.new_timer()
+    local check_interval = 100 -- ms
+    local max_attempts = 100 -- 10 seconds total
+    local attempts = 0
+    
+    timer:start(check_interval, check_interval, vim.schedule_wrap(function()
+        attempts = attempts + 1
+        local all_done = true
+        
+        for _, pack in ipairs(packs) do
+            if pack:get_status() == "installing" then
+                local pack_info = vim.pack.get({ pack.name })
+                
+                if pack_info and pack_info.path then
+                    -- ✅ Installation confirmed
+                    pack.installed = true
+                    pack:set_path(pack_info.path)
+                    pack:set_status("installed")
+                    
+                    Bus.emit("pack:installed", {
+                        name = pack.name,
+                        pack = pack,
+                        stage = pack:get_stage()
+                    })
+                else
+                    all_done = false
+                end
             end
-
-            -- ✅ CRITICAL: Mark as installed BEFORE emitting event
-            pack.installed = true
-            pack:set_active(pack_info)
-            pack:set_path(pack_info.path)
-
-            -- ✅ DO NOT packadd here - let the Loader handle it based on stage
-            -- The loader will call packadd at the appropriate time:
-            -- - "now" stage: immediately
-            -- - "lazy" stage: on trigger
-            -- - "later" stage: after delay/idle/vimenter
-            -- - "disabled" stage: never
-
-            -- Record timing
-            pack.times = pack.times or {}
-            pack.times.install_duration = "0.00"
-
-            -- ✅ Emit install finish event
-            -- This triggers TaskSystem listener which starts lifecycle
-            Bus.emit("pack:install:finish", {
-                name = pack_name,
-                status = "installed",
-                message = "Installation complete",
-                install_duration = pack.times.install_duration,
-                pack = pack,
-                stage = pack._install_stage,
-            })
-
-            ::continue::
         end
-
-        -- Calculate elapsed time
-        local total_elapsed_ms = (vim.loop.hrtime() - state.start_time) / 1e6
-
-        -- Build result
-        local result = {
-            installed_count = state.total - #state.failed,
-            failed_count = #state.failed,
-            failed_packs = state.failed,
-            elapsed_ms = total_elapsed_ms,
-            total_packs = state.total,
-        }
-
-        -- Call completion callback
-        if on_complete then
-            on_complete(true, result)
+        
+        if all_done or attempts >= max_attempts then
+            timer:close()
+            
+            -- Handle timeouts
+            if attempts >= max_attempts then
+                for _, pack in ipairs(packs) do
+                    if pack:get_status() == "installing" then
+                        pack:set_status("failed")
+                        pack.error = "Installation timeout"
+                    end
+                end
+            end
+            
+            if on_complete then
+                on_complete(all_done)
+            end
         end
+    end))
+end
+
+function Manager:initiate_stage_loading(by_stage)
+    local Loader = self.container:resolve("loader")
+    
+    -- Load stages in order: now → lazy → later → disabled
+    Loader:load_stage("now", by_stage.now, function()
+        Loader:load_stage("lazy", by_stage.lazy, function()
+            Loader:load_stage("later", by_stage.later, function()
+                Loader:load_stage("disabled", by_stage.disabled, function()
+                    Bus.emit("pack:all_stages_complete")
+                end)
+            end)
+        end)
     end)
-
-    return true
 end
 
 -- ============================================================================

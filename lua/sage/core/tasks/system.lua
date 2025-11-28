@@ -16,62 +16,80 @@ function TaskSystem.init(deps)
     bus = deps.bus
     logger = deps.logger
 end
+-- ============================================================================
+-- TASK LIFECYCLE: Only for custom tasks
+-- ============================================================================
+function TaskBuilder.create_custom_tasks(spec)
+    local tasks = {}
+    
+    -- Build task (if specified)
+    if spec.data.build then
+        table.insert(tasks, Task.new({
+            id = "build",
+            name = "Build",
+            required = true,
+            fn = function(pack)
+                local path = pack:get_path()
+                local build_cmd = spec.data.build
+                
+                local result = vim.system(
+                    vim.split(build_cmd, " "),
+                    { cwd = path }
+                ):wait()
+                
+                if result.code ~= 0 then
+                    error("Build failed: " .. (result.stderr or ""))
+                end
+            end
+        }))
+    end
+    
+    -- Before hook
+    if spec.data.before then
+        table.insert(tasks, Task.new({
+            id = "before",
+            name = "Before Hook",
+            required = false,
+            fn = spec.data.before
+        }))
+    end
+    
+    -- After hook  
+    if spec.data.after then
+        table.insert(tasks, Task.new({
+            id = "after",
+            name = "After Hook",
+            required = false,
+            fn = spec.data.after
+        }))
+    end
+    
+    return tasks
+end
 
+-- Wire lifecycle ONLY if there are custom tasks
 function TaskSystem.wire_pack(pack)
-    if not pack then
-        return
-    end
-    if wired_packs[pack] then
-        return
+    local spec = pack.specs.normalize
+    local tasks = TaskBuilder.create_custom_tasks(spec)
+    
+    if #tasks == 0 then
+        return -- No custom tasks, no lifecycle needed
     end
     
-    wired_packs[pack] = true
-    
-    local name = pack:get_name()
-
-    local TaskBuilder = require("sage.core.tasks.builder")
-    local TaskLifecycle = require("sage.core.tasks.lifecycle")
-
-    -- Create lifecycle if not exists
-    if not pack.lifecycle then
-        pack.lifecycle = TaskLifecycle.new(pack)
-    end
-
-    -- Add default tasks
-    local tasks = TaskBuilder.create_default_tasks()
+    -- Create lifecycle
+    pack.lifecycle = Lifecycle.new(pack)
     for _, task in ipairs(tasks) do
         pack.lifecycle:add_task(task)
     end
-
-    pack._task_event_listeners = pack._task_event_listeners or {}
-
-    -- ✅ FIX: Listen to pack:install:finish to trigger lifecycle
-    -- This is the ONLY place lifecycle should start
-    if bus then
-        local install_listener = bus.on("pack:install:finish", function(data)
-            if not pack or not pack.specs or not pack.specs.normalize then
-                return
-            end
-
-            if data.name == pack.specs.normalize.name then
-                -- ✅ CRITICAL: Mark as installed
-                pack.installed = true
-                
-                -- ✅ Start lifecycle NOW (after installation)
-                vim.schedule(function()
-                    if pack.lifecycle and not pack.lifecycle.started then
-                        pack.lifecycle.started = true
-                        pack.lifecycle:run_next()
-                    end
-                end)
-            end
-        end)
-        table.insert(pack._task_event_listeners, { event = "pack:install:finish", id = install_listener })
-    end
-
-    if logger then
-        logger:debug("TaskSystem", string.format("Wired pack '%s'", name))
-    end
+    
+    -- Start lifecycle AFTER pack is loaded
+    local listener = bus.on("pack:loaded", function(data)
+        if data.name == pack.name then
+            pack.lifecycle:run_next()
+        end
+    end)
+    
+    pack._task_listeners = { listener }
 end
 
 function TaskSystem.unwire_pack(pack)

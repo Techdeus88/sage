@@ -54,63 +54,212 @@ function Loader:load_pack_safe(pack, reason)
     return true
 end
 
+
+-- ============================================================================
+-- LOADER: Owns loading state
+-- ============================================================================
 function Loader:load_pack(pack)
     local name = pack:get_name()
     
-    -- ✅ CRITICAL: Call packadd here (pack was installed but not loaded yet)
-    local packadd_ok, packadd_err = pcall(vim.cmd, "packadd " .. name)
-    if not packadd_ok then
-        self.utils.safe_notify(
-            string.format("Failed to packadd '%s': %s", name, tostring(packadd_err)),
-            vim.log.levels.ERROR
-        )
+    -- Validation
+    if not pack.installed then
+        return false, "Pack not installed"
+    end
+    
+    if pack:get_status() == "loaded" then
+        return true -- Already loaded
+    end
+    
+    -- Set loading state
+    pack:set_status("loading")
+    Bus.emit("pack:loading", { name = name, pack = pack })
+    
+    -- Execute packadd
+    local ok, err = pcall(vim.cmd.packadd, name)
+    
+    if not ok then
         pack:set_status("failed")
+        pack.error = err
+        Bus.emit("pack:failed", { name = name, pack = pack, error = err })
+        return false, err
+    end
+    
+    -- Mark as loaded
+    pack.loaded = true
+    pack:set_status("loaded")
+    Bus.emit("pack:loaded", { name = name, pack = pack })
+    
+    -- Trigger configuration phase
+    self:configure_pack(pack)
+    
+    return true
+end
+
+-- ============================================================================
+-- LOADER: Stage-Based Loading (YOUR CURRENT LOGIC - ENHANCED)
+-- ============================================================================
+function Loader:load_stage(stage_name, packs, on_complete)
+    if #packs == 0 then
+        if on_complete then on_complete() end
         return
     end
-
-    pack:set_status("configuring")
-
-    -- Emit event to signal configuration should start
-    vim.schedule(function()
-        self.bus.emit("pack:config:start", {
-            name = name,
-            status = pack:get_status(),
-            message = "Configuring",
-            pack = pack,
-        })
-    end)
-
-    -- ✅ The config task in the lifecycle will run the actual config function
-    -- We just need to wait for it to complete
     
-    -- If pack has lifecycle, it's already running from pack:install:finish event
-    -- The config task will execute and emit pack:config:finish when done
+    local stage_start = vim.loop.hrtime()
     
-    -- For packs without config, mark as configured immediately
-    if pack.specs.normalize.data.config == nil then
-        pack:set_status("configured")
-        vim.schedule(function()
-            self.bus.emit("pack:config:finish", {
-                name = name,
-                status = pack:get_status(),
-                message = "No config needed",
-                pack = pack,
-                config_duration = "0.00",
-            })
+    Bus.emit("stage:start", {
+        stage = stage_name,
+        count = #packs
+    })
+    
+    -- Route to appropriate stage handler
+    if stage_name == "now" then
+        self:load_now_stage(packs, function()
+            self:finalize_stage(stage_name, packs, stage_start, on_complete)
+        end)
+    elseif stage_name == "lazy" then
+        self:load_lazy_stage(packs, function()
+            self:finalize_stage(stage_name, packs, stage_start, on_complete)
+        end)
+    elseif stage_name == "later" then
+        self:load_later_stage(packs, function()
+            self:finalize_stage(stage_name, packs, stage_start, on_complete)
+        end)
+    elseif stage_name == "disabled" then
+        self:load_disabled_stage(packs, function()
+            self:finalize_stage(stage_name, packs, stage_start, on_complete)
         end)
     end
+end
 
-    -- Mark as loaded (config task will run separately via lifecycle)
-    pack:set_status("loaded")
+function Loader:finalize_stage(stage_name, packs, start_time, on_complete)
+    local duration = (vim.loop.hrtime() - start_time) / 1e6
     
-    vim.schedule(function()
-        self.bus.emit("pack:load:complete", {
-            name = name,
-            status = pack:get_status(),
-            message = "Loading complete",
-            pack = pack,
-        })
+    Bus.emit("stage:complete", {
+        stage = stage_name,
+        count = #packs,
+        duration = duration
+    })
+    
+    if on_complete then
+        vim.schedule(on_complete)
+    end
+end
+
+-- ============================================================================
+-- NOW STAGE: Load immediately and synchronously
+-- ============================================================================
+function Loader:load_now_stage(packs, on_complete)
+    local total = #packs
+    local completed = 0
+    
+    for _, pack in ipairs(packs) do
+        self:load_pack_immediate(pack, function(success)
+            completed = completed + 1
+            
+            if completed >= total and on_complete then
+                on_complete()
+            end
+        end)
+    end
+end
+
+function Loader:load_pack_immediate(pack, on_complete)
+    local name = pack:get_name()
+    
+    -- Validate pack is installed
+    if not pack.installed then
+        pack:set_status("failed")
+        pack.error = "Cannot load: not installed"
+        if on_complete then on_complete(false) end
+        return
+    end
+    
+    -- Already loaded?
+    if pack.loaded then
+        if on_complete then on_complete(true) end
+        return
+    end
+    
+    -- Set loading state
+    pack:set_status("loading")
+    Bus.emit("pack:loading", { name = name, pack = pack, stage = "now" })
+    
+    -- Execute packadd
+    local load_start = vim.loop.hrtime()
+    local ok, err = pcall(vim.cmd.packadd, name)
+    local load_duration = (vim.loop.hrtime() - load_start) / 1e6
+    
+    if not ok then
+        pack:set_status("failed")
+        pack.error = err
+        Bus.emit("pack:failed", { name = name, pack = pack, error = err })
+        if on_complete then on_complete(false) end
+        return
+    end
+    
+    -- Mark as loaded
+    pack.loaded = true
+    pack.times.load_duration = string.format("%.2f", load_duration)
+    pack:set_status("loaded")
+    Bus.emit("pack:loaded", { 
+        name = name, 
+        pack = pack,
+        load_duration = load_duration
+    })
+    
+    -- Run configuration
+    self:configure_pack(pack, function(config_success)
+        if on_complete then
+            on_complete(config_success)
+        end
     end)
+end
+
+function Loader:configure_pack(pack, on_complete)
+    local name = pack:get_name()
+    local spec = pack.specs.normalize
+    
+    -- No config? Skip to ready
+    if not spec.data.config then
+        pack:set_status("ready")
+        Bus.emit("pack:ready", { name = name, pack = pack })
+        if on_complete then on_complete(true) end
+        return
+    end
+    
+    -- Set configuring state
+    pack:set_status("configuring")
+    Bus.emit("pack:configuring", { name = name, pack = pack })
+    
+    -- Run config
+    local config_start = vim.loop.hrtime()
+    local ok, err = pcall(spec.data.config)
+    local config_duration = (vim.loop.hrtime() - config_start) / 1e6
+    
+    pack.times.config_duration = string.format("%.2f", config_duration)
+    
+    if not ok then
+        pack:set_status("failed")
+        pack.error = err
+        Bus.emit("pack:failed", { 
+            name = name, 
+            pack = pack, 
+            error = err,
+            phase = "config"
+        })
+        if on_complete then on_complete(false) end
+        return
+    end
+    
+    -- Success!
+    pack:set_status("ready")
+    Bus.emit("pack:ready", { 
+        name = name, 
+        pack = pack,
+        config_duration = config_duration
+    })
+    
+    if on_complete then on_complete(true) end
 end
 
 -- ============================================================================
