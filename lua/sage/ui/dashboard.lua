@@ -179,24 +179,14 @@ function Dashboard:setup_close_keymaps()
     end
 end
 
-local function get_value(name, key, level)
-    local specs = require("sage.config").specs
-    local pack
-    local n_pack
-
-    for _, spec in ipairs(specs) do
-        if spec.name == name then
-            pack = spec
-            n_pack = vim.pack.get({name})[1]
-        end
-    end
-
+local function get_value(pack, key, level)
+    local n_pack  = pack:get_native()
+    local pack_value
+    local n_pack_value
     if level == 1 then
-        local pack_value = pack[key]
-        local n_pack_value = n_pack[key]
+        pack_value = pack[key]
     end
-
-    return pack_value, n_pack_value
+        return pack_value
 end
 
 local function format_table_value(key, val, val_type, indent, max_length)
@@ -229,18 +219,19 @@ local function format_table_value(key, val, val_type, indent, max_length)
     return f_value
 end
 
-local function format_table(name, lines, tbl_order, indent, max_length, num_tables)
+local function format_table(name, pack, lines, tbl_order, indent, max_length, num_tables)
     lines = lines or {}
     max_length = max_length or 10
     indent = indent or 0
 
-    if not tbl or indent > max_length then
+    if not tbl_order or indent > max_length then
         return lines
     end
 
-    for _, key in tbl_order.order do
-        local p_value, n_value = get_value(tbl_order.name, key, tbl_order.level)
-        local f_value = format_table_value(p_value)
+    for _, key in ipairs(tbl_order.order) do
+        local p_value = get_value(pack, key, tbl_order.level)
+        print(p_value)
+        local f_value = format_table_value(key, p_value, type(p_value), indent, max_length)
         table.insert(lines, f_value)
     end
     
@@ -254,13 +245,6 @@ function Dashboard:display_pack_comparison(pack_name)
 
     if not pack then
         utils.safe_notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
-        return
-    end
-
-    local n_pack = pack:get_native()
-
-    if not n_pack then
-        utils.safe_notify(string.format("[%s] Failed to get native pack", pack_name), vim.log.levels.ERROR)
         return
     end
 
@@ -280,8 +264,8 @@ function Dashboard:display_pack_comparison(pack_name)
     local header_text = string.format("Pack: %s", pack_name)
     local header_padding = math.floor((inner_width - #header_text - 2) / 2) -- -2 for border chars
 
-    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗" ..
-        "║ "
+    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗") 
+    table.insert(lines, "║ "
             .. string.rep(" ", header_padding)
             .. header_text
             .. string.rep(" ", inner_width - header_padding - #header_text - 3)
@@ -298,7 +282,7 @@ function Dashboard:display_pack_comparison(pack_name)
         order = {"name", "src", "active", "installed", "loaded", "version", "status"}, 
         level = 1 
     }
-    content_lines = vim.list_extend(content_lines, format_table(pack_name, content_lines, top_spec, 0, 8, 1))
+    content_lines = vim.list_extend(content_lines, format_table(pack_name, pack, content_lines, top_spec, 0, 8, 1))
     for _, content_text in ipairs(content_lines) do
         local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
         table.insert(lines, string.rep(" ", content_padding) .. content_text)
