@@ -338,7 +338,7 @@ function Dashboard:display_pack_comparison(pack_name)
     for _, line in ipairs(lines) do
         table.insert(padded_lines, "  " .. line) -- Add consistent left padding
     end
-    o
+    
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
