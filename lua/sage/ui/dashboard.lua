@@ -657,7 +657,7 @@ function Dashboard:add_pack(data)
         stage_two = elem.StageElement.new("stage_two", stage, "icon_text", {
             stage = { now = icons.now, later = icons.later, lazy = icons.lazy, disabled = icons.disabled },
         }),
-        task_progress = elem.TaskProgressElement.new("task_progress", Pack:get_task_progress()),
+        -- task_progress = elem.TaskProgressElement.new("task_progress", Pack:get_task_progress()),
         install_duration = elem.DurationElement.new("install_duration", Pack.times.install_duration),
         config_duration = elem.DurationElement.new("config_duration", Pack.times.config_duration),
         message = elem.TextElement.new("message", message),

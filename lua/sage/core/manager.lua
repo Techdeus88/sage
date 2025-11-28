@@ -123,6 +123,185 @@ function Manager:flatten_pack_groups(pack_groups)
 end
 
 -- ============================================================================
+-- MANAGER: Installation + Stage Classification
+-- ============================================================================
+function Manager:install_and_classify_batch(packs)
+    local Bus = self.bus
+
+    local sorted = self.utils.sort_packs(packs)
+    -- 1. Classify packs by stage BEFORE installation
+    local by_stage = {
+        now      = sorted['now'],
+        later      = sorted['later'],
+        lazy      = sorted['lazy'],
+        disabled      = sorted['disabled'],
+    }
+
+    -- 2. Install ALL packs (stage doesn't affect installation)
+    local all_packs = vim.iter(vim.tbl_values(by_stage)):flatten():totable()
+
+    -- Kick off install; poll inside install_batch
+    self:install_batch(all_packs, function(success)
+        if success then
+            -- 3. After install completes, pass to Loader by stage
+            self:initiate_stage_loading(by_stage)
+        else
+            -- Optional: notify failure here if you want
+            -- Bus.emit("pack:install:batch_failed", { reason = "one or more packs failed to install" })
+        end
+    end)
+end
+
+function Manager:install_batch(packs, on_complete)
+    local Bus = self.bus
+
+    if #packs == 0 then
+        if on_complete then
+            on_complete(true)
+        end
+        return
+    end
+
+    -- Tell vim.pack which specs to install
+    local install_specs = vim.tbl_map(function(p)
+        return p.specs.normalize
+    end, packs)
+
+    -- Mark as installing + emit start events
+    for _, pack in ipairs(packs) do
+        pack.times = pack.times or {}
+        pack.times.install_start = vim.loop.hrtime()
+
+        pack:set_status("installing")
+
+        vim.schedule(function()
+            Bus.emit("pack:install:start", {
+                name    = pack.name,
+                pack    = pack,
+                stage   = pack:get_stage(),
+                status  = pack:get_status(),
+                message = "Installing " .. pack.name .. "...",
+            })
+        end)
+    end
+
+    -- Submit to vim.pack.add (all at once for efficiency)
+    vim.pack.add(install_specs, { confirm = self.opts.add_opts.confirm, load = false })
+
+    -- Poll for completion
+    self:poll_installation_complete(packs, on_complete)
+end
+
+function Manager:poll_installation_complete(packs, on_complete)
+    local Bus = self.bus
+
+    if #packs == 0 then
+        if on_complete then
+            on_complete(true)
+        end
+        return
+    end
+
+    local timer          = vim.uv.new_timer()
+    local check_interval = 100  -- ms
+    local max_attempts   = 600  -- ~10 seconds total
+    local attempts       = 0
+
+    timer:start(
+        check_interval,
+        check_interval,
+        vim.schedule_wrap(function()
+            attempts = attempts + 1
+            local all_done = true
+
+            for _, pack in ipairs(packs) do
+                if pack:get_status() == "installing" then
+                    local pack_info = vim.pack.get({ pack.name })
+
+                    if pack_info and pack_info.path then
+                        -- ✅ Installation confirmed
+                        pack.installed = true
+                        pack:set_path(pack_info.path)
+                        pack:set_status("installed")
+
+                        local now = vim.loop.hrtime()
+                        pack.times = pack.times or {}
+
+                        local install_ms = 0
+                        if pack.times.install_start then
+                            install_ms = (now - pack.times.install_start) / 1e6
+                            pack.times.install_duration = string.format("%.2f", install_ms)
+                        end
+
+                        vim.schedule(function()
+                            Bus.emit("pack:install:finish", {
+                                name             = pack.name,
+                                pack             = pack,
+                                stage            = pack:get_stage(),
+                                status           = pack:get_status(),
+                                install_duration = install_ms,
+                                message          = "Installed " .. pack.name,
+                            })
+                        end)
+                    else
+                        all_done = false
+                    end
+                end
+            end
+
+            if all_done or attempts >= max_attempts then
+                timer:close()
+
+                -- Handle timeouts
+                if attempts >= max_attempts then
+                    for _, pack in ipairs(packs) do
+                        if pack:get_status() == "installing" then
+                            pack:set_status("failed")
+                            pack.error = "Installation timeout"
+
+                            vim.schedule(function()
+                                Bus.emit("pack:failed", {
+                                    name   = pack.name,
+                                    pack   = pack,
+                                    status = "failed",
+                                    reason = "Installation timeout",
+                                    phase  = "install",
+                                })
+                            end)
+                        end
+                    end
+                end
+
+                if on_complete then
+                    on_complete(all_done)
+                end
+            end
+        end)
+    )
+end
+
+function Manager:initiate_stage_loading(by_stage)
+    local Bus    = self.bus
+    local Loader = self.container:resolve("loader")
+    local delay  = 250
+
+    -- Load stages in order: now → lazy → later → disabled
+    Loader:load_stage("now", by_stage.now, function()
+        Loader:load_stage("lazy", by_stage.lazy, function()
+            Loader:load_stage("later", by_stage.later, function()
+                Loader:load_stage("disabled", by_stage.disabled, function()
+                    vim.schedule(function()
+                        vim.defer_fn(function()
+                            Bus.emit("pack:all_stages_complete")
+                        end, delay + 50)
+                    end)
+                end)
+            end)
+        end)
+    end)
+end
+
+-- ============================================================================
 -- Create all packs from specs
 -- ============================================================================
 function Manager:create_all_packs(specs)
@@ -190,117 +369,6 @@ function Manager:create_all_packs(specs)
     return packs
 end
 
--- ============================================================================
--- MANAGER: Installation + Stage Classification
--- ============================================================================
-function Manager:install_and_classify_batch(packs)
-    print(vkm.inspect(packs))
-    -- 1. Classify packs by stage BEFORE installation
-    local by_stage = {
-        now = {},
-        lazy = {},
-        later = {},
-        disabled = {}
-    }
-    
-    for _, pack in ipairs(packs) do
-        local stage = pack:get_stage()
-        table.insert(by_stage[stage], pack)
-    end
-    print(vim.inspect(by_stage))
-    -- 2. Install ALL packs (stage doesn't affect installation)
-    local all_packs = vim.iter(vim.tbl_values(by_stage)):flatten()
-        
-    self:install_batch(all_packs, function(success)
-        if success then
-            -- 3. After install completes, pass to Loader by stage
-            self:initiate_stage_loading(by_stage)
-        end
-    end)
-end
-
-function Manager:install_batch(packs, on_complete)
-    local pack_names = {}
-    
-    for _, pack in ipairs(packs) do
-        pack:set_status("installing")
-        Bus.emit("pack:installing", { name = pack.name, pack = pack })
-        table.insert(pack_names, pack.specs.normalize)
-    end
-    
-    -- Submit to vim.pack.add (all at once for efficiency)
-    vim.pack.add(pack_names, { load = false })
-    
-    -- Poll for completion
-    self:poll_installation_complete(packs, on_complete)
-end
-
-function Manager:poll_installation_complete(packs, on_complete)
-    local timer = vim.uv.new_timer()
-    local check_interval = 100 -- ms
-    local max_attempts = 100 -- 10 seconds total
-    local attempts = 0
-    
-    timer:start(check_interval, check_interval, vim.schedule_wrap(function()
-        attempts = attempts + 1
-        local all_done = true
-        
-        for _, pack in ipairs(packs) do
-            if pack:get_status() == "installing" then
-                local pack_info = vim.pack.get({ pack.name })
-                
-                if pack_info and pack_info.path then
-                    -- ✅ Installation confirmed
-                    pack.installed = true
-                    pack:set_path(pack_info.path)
-                    pack:set_status("installed")
-                    
-                    Bus.emit("pack:installed", {
-                        name = pack.name,
-                        pack = pack,
-                        stage = pack:get_stage()
-                    })
-                else
-                    all_done = false
-                end
-            end
-        end
-        
-        if all_done or attempts >= max_attempts then
-            timer:close()
-            
-            -- Handle timeouts
-            if attempts >= max_attempts then
-                for _, pack in ipairs(packs) do
-                    if pack:get_status() == "installing" then
-                        pack:set_status("failed")
-                        pack.error = "Installation timeout"
-                    end
-                end
-            end
-            
-            if on_complete then
-                on_complete(all_done)
-            end
-        end
-    end))
-end
-
-function Manager:initiate_stage_loading(by_stage)
-    local Bus = self.bus
-    local Loader = self.container:resolve("loader")
-    
-    -- Load stages in order: now → lazy → later → disabled
-    Loader:load_stage("now", by_stage.now, function()
-        Loader:load_stage("lazy", by_stage.lazy, function()
-            Loader:load_stage("later", by_stage.later, function()
-                Loader:load_stage("disabled", by_stage.disabled, function()
-                    Bus.emit("pack:all_stages_complete")
-                end)
-            end)
-        end)
-    end)
-end
 
 -- ============================================================================
 -- Process stages after installation completes
@@ -407,11 +475,8 @@ end
 -- Main Entry Point: run_packs method
 -- ============================================================================
 function Manager:run_packs()
-    local Utils = self.utils
-    local Bus = self.bus
+    local Utils     = self.utils
     local Dashboard = self.container:resolve("dashboard")
-
-    local run_start = vim.loop.hrtime()
 
     -- Load pre-normalized specs from config
     local all_specs = self:load_specs()
@@ -434,20 +499,18 @@ function Manager:run_packs()
         end, 500)
     end
 
+    -- Create pack objects from specs
     local all_packs = self:create_all_packs(all_specs)
-    
+
     if #all_packs == 0 then
         Utils.safe_notify("No packs created successfully", vim.log.levels.WARN)
         return {}
     end
-    print(vim.inspect(all_packs))
-    self:install_and_classify_batch(all_packs)
-    
-    if not install_ok then
-        Utils.safe_notify("Failed to start batch installation", vim.log.levels.ERROR)
-        return {}
-    end
 
+    -- ✅ Kick off install + staged loading (async, event-driven)
+    self:install_and_classify_batch(all_packs)
+
+    -- We return the pack objects immediately; progress is tracked via events
     return all_packs
 end
 

@@ -264,7 +264,7 @@ function Orchestrator:execute_initialization()
     self:init_metrics()
     self:init_loader()
     self:init_command()
-    self:init_task()
+    -- self:init_task()
     self:init_public()
 
     self.initialized = true
