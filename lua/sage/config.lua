@@ -245,8 +245,9 @@ end
 
 ---Get all .lua files recursively from a directory
 ---@param exclude_dirs? table
+---@param path string
 ---@return string[]
-local function get_lua_files_recursive_opts(exclude_dirs)
+local function get_lua_files_recursive_opts(path, exclude_dirs)
     exclude_dirs = exclude_dirs or {}
     local files = {}
 
@@ -407,7 +408,7 @@ local function load_specs(opts)
         return all_specs
     end
 
-    local spec_files = get_lua_files_recursive_opts(opts.exclude_dirs)
+    local spec_files = get_lua_files_recursive_opts(specs_path, opts.exclude_dirs)
 
     if #spec_files == 0 then
         vim.notify(string.format("No spec files found in: %s", specs_path), vim.log.levels.INFO)
