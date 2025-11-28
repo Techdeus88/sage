@@ -218,18 +218,6 @@ local function format_table(lines, tbl, indent, max_length, num_tables)
         return lines
     end
 
-    for k, v in pairs(tbl) do
-        local val_type = type(v)
-        if val_type == "table" then
-            num_tables = num_tables + 1
-            local tbl_lines = format_table({}, v, indent + 1, max_length, num_tables)
-            vim.list_extend(lines, tbl_lines)
-        else
-            local tbl_value = format_table_value(k, v, val_type, indent, max_length)
-            table.insert(lines, tbl_value)
-        end
-    end
-    table.insert(lines, string.format("There were %d tables", num_tables))
     return lines
 end
 

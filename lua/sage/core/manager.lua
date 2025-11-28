@@ -194,6 +194,7 @@ end
 -- MANAGER: Installation + Stage Classification
 -- ============================================================================
 function Manager:install_and_classify_batch(packs)
+    print(vkm.inspect(packs))
     -- 1. Classify packs by stage BEFORE installation
     local by_stage = {
         now = {},
@@ -206,9 +207,10 @@ function Manager:install_and_classify_batch(packs)
         local stage = pack:get_stage()
         table.insert(by_stage[stage], pack)
     end
-    
+    print(vim.inspect(by_stage))
     -- 2. Install ALL packs (stage doesn't affect installation)
     local all_packs = vim.iter(vim.tbl_values(by_stage)):flatten()
+        
     self:install_batch(all_packs, function(success)
         if success then
             -- 3. After install completes, pass to Loader by stage
@@ -438,19 +440,8 @@ function Manager:run_packs()
         Utils.safe_notify("No packs created successfully", vim.log.levels.WARN)
         return {}
     end
-
-    Utils.safe_notify(
-        string.format(
-            "Pack distribution - now: %d, lazy: %d, later: %d, disabled: %d",
-            #by_stage.now,
-            #by_stage.lazy,
-            #by_stage.later,
-            #by_stage.disabled
-        ),
-        vim.log.levels.INFO
-    )
-
-    local install_ok = self:install_and_classify_batch(all_packs)
+    print(vim.inspect(all_packs))
+    self:install_and_classify_batch(all_packs)
     
     if not install_ok then
         Utils.safe_notify("Failed to start batch installation", vim.log.levels.ERROR)
