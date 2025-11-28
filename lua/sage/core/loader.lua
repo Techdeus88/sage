@@ -99,6 +99,7 @@ end
 -- LOADER: Stage-Based Loading (YOUR CURRENT LOGIC - ENHANCED)
 -- ============================================================================
 function Loader:load_stage(stage_name, packs, on_complete)
+    local Bus = self.bus
     if #packs == 0 then
         if on_complete then on_complete() end
         return
@@ -133,6 +134,7 @@ end
 
 function Loader:finalize_stage(stage_name, packs, start_time, on_complete)
     local duration = (vim.loop.hrtime() - start_time) / 1e6
+    local Bus = self.bus
     
     Bus.emit("stage:complete", {
         stage = stage_name,
@@ -288,6 +290,7 @@ function Loader:load_now(packs)
 end
 
 function Loader:load_lazy(packs)
+    local Bus = self.bus
     -- Set up lazy loading triggers
     for _, pack in ipairs(packs) do
         pack:set_status("lazy")
@@ -317,25 +320,6 @@ function Loader:load_lazy(packs)
     end
 end
 
-function Loader:load_later(packs)
-    local opts = self.opts
-    -- Set initial status for all later packs BEFORE applying strategy
-    for i, pack in ipairs(packs or {}) do
-        pack:set_status("pending")
-    end
-
-    local strategy = (opts and opts.strategy) or "vimenter"
-    if strategy == "vimenter" then
-        self:_strategy_vimenter(packs, opts)
-    elseif strategy == "delay" then
-        self:_strategy_delay(packs, opts)
-    elseif strategy == "idle" then
-        self:_strategy_idle(packs, opts)
-    else
-        vim.notify("Unknown strategy: " .. tostring(strategy), vim.log.levels.WARN)
-    end
-end
-
 function Loader:load_disabled(packs)
     -- Mark as disabled, don't load
     for _, pack in ipairs(packs) do
@@ -344,24 +328,104 @@ function Loader:load_disabled(packs)
 end
 
 -- ============================================================================
--- Trigger Setup (for lazy loading)
--- ============================================================================
+-- LAZY STAGE: Setup triggers, don't load yet
+-- =====================F=======================================================
+function Loader:load_lazy_stage(packs, on_complete)
+    local Bus = self.bus
+    
+    for _, pack in ipairs(packs) do
+        pack:set_status("lazy")
+        
+        local spec = pack.specs.normalize
+        local triggers = spec.data.on or {}
+        
+        -- Setup command triggers
+        if triggers.cmds or triggers.cmd then
+            self:setup_cmd_triggers(pack, triggers.cmds or triggers.cmd)
+        end
+        
+        -- Setup keymap triggers
+        if triggers.keys then
+            self:setup_key_triggers(pack, triggers.keys)
+        end
+        
+        -- Setup event triggers
+        if triggers.events or triggers.event then
+            self:setup_event_triggers(pack, triggers.events or triggers.event)
+        end
+        
+        -- Setup filetype triggers
+        if triggers.fts or triggers.ft then
+            self:setup_filetype_triggers(pack, triggers.fts or triggers.ft)
+        end
+        
+        Bus.emit("pack:lazy_ready", {
+            name = pack:get_name(),
+            pack = pack,
+            triggers = triggers
+        })
+    end
+    
+    if on_complete then
+        vim.schedule(on_complete)
+    end
+end
 
+-- ============================================================================
+-- LATER STAGE: Deferred loading strategies (KEEP YOUR LOGIC!)
+-- ============================================================================
+function Loader:load_later_stage(packs, on_complete)
+    local strategy = (self.opts and self.opts.strategy) or "vimenter"
+    
+    if strategy == "vimenter" then
+        self:_strategy_vimenter(packs, on_complete)
+    elseif strategy == "delay" then
+        self:_strategy_delay(packs, on_complete)
+    elseif strategy == "idle" then
+        self:_strategy_idle(packs, on_complete)
+    else
+        vim.notify("Unknown strategy: " .. strategy, vim.log.levels.WARN)
+        if on_complete then on_complete() end
+    end
+end
+
+-- ============================================================================
+-- DISABLED STAGE: Mark as disabled, don't load
+-- ============================================================================
+function Loader:load_disabled_stage(packs, on_complete)
+    local Bus = self.bus
+    for _, pack in ipairs(packs) do
+        pack:set_status("disabled")
+        Bus.emit("pack:disabled", {
+            name = pack:get_name(),
+            pack = pack
+        })
+    end
+    
+    if on_complete then
+        vim.schedule(on_complete)
+    end
+end
+
+
+-- ============================================================================
+-- TRIGGER SETUP (Keep your existing logic)
+-- ============================================================================
 function Loader:setup_cmd_triggers(pack, cmds)
     local commands = type(cmds) == "string" and { cmds } or cmds
-
+    
     for _, cmd in ipairs(commands) do
         vim.api.nvim_create_user_command(cmd, function(opts)
-            -- Remove the command before loading
+            -- Remove command
             pcall(vim.api.nvim_del_user_command, cmd)
-
-            -- Load the pack (which triggers task system)
-            self:load_pack_safe(pack)
-
-            -- Re-execute the command
-            vim.schedule(function()
-                local args = opts.args or ""
-                vim.cmd(cmd .. " " .. args)
+            
+            -- Load pack
+            self:load_pack_immediate(pack, function()
+                -- Re-execute command
+                vim.schedule(function()
+                    local args = opts.args or ""
+                    vim.cmd(cmd .. " " .. args)
+                end)
             end)
         end, { nargs = "*", force = true })
     end
@@ -369,22 +433,22 @@ end
 
 function Loader:setup_key_triggers(pack, keys)
     local mappings = type(keys) == "string" and { keys } or keys
-
+    
     for _, mapping in ipairs(mappings) do
         local mode = mapping.mode or "n"
         local lhs = mapping[1] or mapping.lhs
-
+        
         vim.keymap.set(mode, lhs, function()
-            -- Remove the keymap before loading
+            -- Remove keymap
             pcall(vim.keymap.del, mode, lhs)
-
-            -- Load the pack
-            self:load_pack_safe(pack)
-
-            -- Re-trigger the key
-            vim.schedule(function()
-                local keys_to_send = vim.api.nvim_replace_termcodes(lhs, true, false, true)
-                vim.api.nvim_feedkeys(keys_to_send, "m", false)
+            
+            -- Load pack
+            self:load_pack_immediate(pack, function()
+                -- Re-trigger key
+                vim.schedule(function()
+                    local keys_to_send = vim.api.nvim_replace_termcodes(lhs, true, false, true)
+                    vim.api.nvim_feedkeys(keys_to_send, "m", false)
+                end)
             end)
         end, { desc = "Lazy load " .. pack:get_name() })
     end
@@ -392,19 +456,15 @@ end
 
 function Loader:setup_event_triggers(pack, events)
     local event_list = type(events) == "string" and { events } or events
-
     local group = vim.api.nvim_create_augroup("LazyLoad_" .. pack:get_name(), { clear = true })
-
+    
     local autocmd_id = vim.api.nvim_create_autocmd(event_list, {
         group = group,
         once = true,
         callback = function()
-            -- Delete the autocmd group
             pcall(vim.api.nvim_del_augroup_by_id, group)
-
-            -- Load the pack
-            self:load_pack_safe(pack)
-        end,
+            self:load_pack_immediate(pack)
+        end
     })
     
     table.insert(self.autocmds, autocmd_id)
@@ -412,20 +472,16 @@ end
 
 function Loader:setup_filetype_triggers(pack, filetypes)
     local ft_list = type(filetypes) == "string" and { filetypes } or filetypes
-
     local group = vim.api.nvim_create_augroup("LazyLoadFT_" .. pack:get_name(), { clear = true })
-
+    
     local autocmd_id = vim.api.nvim_create_autocmd("FileType", {
         group = group,
         pattern = ft_list,
         once = true,
         callback = function()
-            -- Delete the autocmd group
             pcall(vim.api.nvim_del_augroup_by_id, group)
-
-            -- Load the pack
-            self:load_pack_safe(pack)
-        end,
+            self:load_pack_immediate(pack)
+        end
     })
     
     table.insert(self.autocmds, autocmd_id)
@@ -434,96 +490,113 @@ end
 -- ============================================================================
 -- Loading Strategies
 -- ============================================================================
-
--- Strategy vimenter: loads all lazy packs on VimEnter
-function Loader:_strategy_vimenter(packs, opts)
+function Loader:_strategy_vimenter(packs, on_complete)
     local has_run = false
-
+    
     local function load_all()
-        if has_run then
-            return
-        end
+        if has_run then return end
         has_run = true
-
-        for i, pack in ipairs(packs) do
-            self:load_pack_safe(pack, "VimEnter strategy")
+        
+        local total = #packs
+        local completed = 0
+        
+        for _, pack in ipairs(packs) do
+            self:load_pack_immediate(pack, function()
+                completed = completed + 1
+                if completed >= total and on_complete then
+                    on_complete()
+                end
+            end)
         end
     end
-
+    
     if vim.fn.has("vim_starting") == 1 then
         local autocmd_id = vim.api.nvim_create_autocmd("VimEnter", {
             once = true,
             callback = load_all,
-            desc = "Load later-stage plugins on VimEnter",
+            desc = "Load 'later' stage packs on VimEnter"
         })
         table.insert(self.autocmds, autocmd_id)
     else
+        -- VimEnter already fired
         load_all()
     end
 end
 
--- Strategy delay: delays loading of all lazy packs
-function Loader:_strategy_delay(packs, opts)
-    local delay_ms = (opts and opts.delay_ms) or 2000
-    local timer = vim.loop.new_timer()
+function Loader:_strategy_delay(packs, on_complete)
+    local delay_ms = (self.opts and self.opts.delay_ms) or 2000
+    local timer = vim.uv.new_timer()
     table.insert(self.timers, timer)
-
-    timer:start(
-        delay_ms,
-        0,
-        vim.schedule_wrap(function()
-            timer:close()
-            for i, pack in ipairs(packs) do
-                self:load_pack_safe(pack, "Delay strategy")
-            end
-        end)
-    )
+    
+    timer:start(delay_ms, 0, vim.schedule_wrap(function()
+        timer:close()
+        
+        local total = #packs
+        local completed = 0
+        
+        for _, pack in ipairs(packs) do
+            self:load_pack_immediate(pack, function()
+                completed = completed + 1
+                if completed >= total and on_complete then
+                    on_complete()
+                end
+            end)
+        end
+    end))
 end
 
--- Strategy idle: loads all lazy packs when user is idle for a set amount of seconds (default 4000)
-function Loader:_strategy_idle(packs, opts)
-    local idle_time_ms = (opts and opts.idle_time_ms) or 2000
-    local check_interval = (opts and opts.check_interval) or 500
+function Loader:_strategy_idle(packs, on_complete)
+    local idle_time_ms = (self.opts and self.opts.idle_time_ms) or 2000
+    local check_interval = (self.opts and self.opts.check_interval) or 500
     local last_input_time = vim.loop.hrtime()
     local has_started = false
-
+    
     local function check_idle()
         local current_time = vim.loop.hrtime()
         local time_since_input = (current_time - last_input_time) / 1e6
-
+        
         if time_since_input >= idle_time_ms and not has_started then
             has_started = true
-            for i, pack in ipairs(packs) do
-                self:load_pack_safe(pack, "Idle strategy")
+            
+            local total = #packs
+            local completed = 0
+            
+            for _, pack in ipairs(packs) do
+                self:load_pack_immediate(pack, function()
+                    completed = completed + 1
+                    if completed >= total and on_complete then
+                        on_complete()
+                    end
+                end)
             end
+            
             return false -- Stop checking
         end
-
+        
         return true -- Continue checking
     end
-
+    
     -- Track user input
-    local autocmd_id = vim.api.nvim_create_autocmd({ "CursorMoved", "TextChanged", "TextChangedI", "CmdlineEnter" }, {
-        callback = function()
-            last_input_time = vim.loop.hrtime()
-        end,
-        desc = "Track idle loader input",
-    })
-    table.insert(self.autocmds, autocmd_id)
-
-    -- Start idle timer
-    local timer = vim.loop.new_timer()
-    table.insert(self.timers, timer)
-
-    timer:start(
-        check_interval,
-        check_interval,
-        vim.schedule_wrap(function()
-            if not check_idle() then
-                timer:close()
-            end
-        end)
+    local autocmd_id = vim.api.nvim_create_autocmd(
+        { "CursorMoved", "TextChanged", "TextChangedI", "CmdlineEnter" },
+        {
+            callback = function()
+                last_input_time = vim.loop.hrtime()
+            end,
+            desc = "Track idle time for lazy loader"
+        }
     )
+    table.insert(self.autocmds, autocmd_id)
+    
+    -- Start idle timer
+    local timer = vim.uv.new_timer()
+    table.insert(self.timers, timer)
+    
+    timer:start(check_interval, check_interval, vim.schedule_wrap(function()
+        if not check_idle() then
+            timer:close()
+        end
+    end))
 end
 
 -- ============================================================================

@@ -19,6 +19,7 @@ end
 
 -- Wire lifecycle ONLY if there are custom tasks
 function TaskSystem.wire_pack(pack)
+    local TaskBuilder = require("sage.core.tasks.builder")
     local spec = pack.specs.normalize
     local tasks = TaskBuilder.create_custom_tasks(spec)
     

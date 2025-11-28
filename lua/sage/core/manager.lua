@@ -70,7 +70,7 @@ end
 -- ============================================================================
 function Manager:create_pack(spec)
     local pack = self.container:resolve("pack")
-    local TaskSystem = self.container:resolve("task_system")
+    -- local TaskSystem = self.container:resolve("task_system")
 
     local Pack = pack.new(spec)
 
@@ -79,7 +79,7 @@ function Manager:create_pack(spec)
     Pack.loaded = false
 
     -- ✅ Wire the task system (sets up lifecycle, doesn't run it)
-    TaskSystem.wire_pack(Pack)
+    -- TaskSystem.wire_pack(Pack)
 
     return Pack
 end
@@ -208,7 +208,7 @@ function Manager:install_and_classify_batch(packs)
     end
     
     -- 2. Install ALL packs (stage doesn't affect installation)
-    local all_packs = vim.tbl_flatten(vim.tbl_values(by_stage))
+    local all_packs = vim.iter(vim.tbl_values(by_stage)):flatten()
     self:install_batch(all_packs, function(success)
         if success then
             -- 3. After install completes, pass to Loader by stage
@@ -285,6 +285,7 @@ function Manager:poll_installation_complete(packs, on_complete)
 end
 
 function Manager:initiate_stage_loading(by_stage)
+    local Bus = self.bus
     local Loader = self.container:resolve("loader")
     
     -- Load stages in order: now → lazy → later → disabled
@@ -432,18 +433,11 @@ function Manager:run_packs()
     end
 
     local all_packs = self:create_all_packs(all_specs)
+    
     if #all_packs == 0 then
         Utils.safe_notify("No packs created successfully", vim.log.levels.WARN)
         return {}
     end
-
-    local sorted = Utils.sort_packs(all_packs)
-    local by_stage = {
-        now = sorted["now"] or {},
-        lazy = sorted["lazy"] or {},
-        later = sorted["later"] or {},
-        disabled = sorted["disabled"] or {},
-    }
 
     Utils.safe_notify(
         string.format(
@@ -463,7 +457,6 @@ function Manager:run_packs()
         return {}
     end
 
-    initiate_stage_loading(by_stage)
     return all_packs
 end
 
