@@ -4,6 +4,31 @@ U.init = function(container)
     U.container = container
 end
 
+function U.serialize(tbl, indent)
+    indent = indent or 0
+    local prefix = string.rep("  ", indent)
+    local lines = {}
+
+    for k, v in pairs(tbl) do
+        local key = string.format("[%s]", tostring(k))
+
+        if type(v) == "table" then
+            -- Open table
+            table.insert(lines, string.format("%s%s = {", prefix, key))
+            -- Recurse
+            table.insert(lines, serialize(v, indent + 1))
+            -- Close table
+            table.insert(lines, string.format("%s}", prefix))
+        else
+            -- Convert value
+            local value = string.format("[%s]", tostring(v))
+            table.insert(lines, string.format("%s%s = %s", prefix, key, value))
+        end
+    end
+
+    return table.concat(lines, "\n")
+end
+
 function U.safe_notify(msg, level)
     vim.schedule(function()
         vim.notify(msg, level)

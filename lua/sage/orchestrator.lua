@@ -63,7 +63,7 @@ function Orchestrator:init_bus()
     local EventBus = require("sage.core.bus")
     self.bus = EventBus
 
-    self.bus:init(self.logger)
+    self.bus:init(self.logger, self.utils)
     self.container:register("bus", function()
         return self.bus
     end, { lazy = false })

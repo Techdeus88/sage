@@ -10,9 +10,10 @@ Bus.queue = {}
 Bus.queued_items = {} -- Track what's already queued
 Bus.logger = nil
 
-function Bus:init(logger)
-    if not self.logger then
+function Bus:init(logger, utils)
+    if not self.logger and not self.utils then
         self.logger = logger
+        self.utils = utils
     end
 end
 
@@ -50,6 +51,7 @@ function Bus.emit(event, data)
 end
 
 function Bus.log_event(event, data, self)
+    local s_data = self.utils.serialize(data, 2)
     self.logger:debug("Bus", string.format("%s -> %s", event, string.gsub(vim.inspect(data), "\n", "")))
 end
 
