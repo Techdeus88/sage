@@ -12,29 +12,9 @@ end
 function Pack.new(spec)
     local self = setmetatable({}, Pack)
 
-    local src = spec.src or spec[1]
-    local name = spec.name or utils.extract_name(src)
-    local priority = spec.priority or 100
-    local config = spec.config
-    local before = spec.before
-    local after = spec.after
-    local build = spec.build
-    local depends = spec.depends
-    local version = spec.version
-    local on = spec.on
-
-    local prefix = "https://github.com/"
-    local disabled = spec.enabled ~= nil and spec.enabled == false
-    local stage = self:determine_stage(spec)
-    local beg_status = "idle"
-
-    self.enabled = not disabled
+    self.name = spec.name
     self.lifecycle = nil -- will be set later by the manager / lifecycle code
-
-    self.stage = stage
-    self.status = beg_status
-    self.priority = priority
-
+    self.status = "idle"
     self.loaded = false
     self.installed = false
     self.failed = false
@@ -43,31 +23,18 @@ function Pack.new(spec)
         config_duration = 0,
     }
 
-    -- vim.pack specific
-    self.active = false
-    self.path = ""
-    self.rev = ""
-    self.branches = {}
-    self.tags = {}
+    local v_spec = {
+        active = false,
+        branches = {},
+        path = "",
+        rev = "",
+        tags = {}
+    }
 
     self.specs = {}
-    self.specs.user = spec
-    self.specs.normalize = {}
+    self.specs.normalize = spec
+    self.specs.vim = v_spec
 
-    local n_spec = self.specs.normalize
-
-    n_spec.src = prefix .. src
-    n_spec.name = name
-    n_spec.version = version
-    n_spec.data = {}
-    n_spec.data.stage = stage
-    n_spec.data.source = src
-    n_spec.data.depends = depends
-    n_spec.data.before = before
-    n_spec.data.config = config
-    n_spec.data.after = after
-    n_spec.data.on = on
-    n_spec.data.build = build
 
     return self
 end
@@ -78,7 +45,7 @@ end
 
 function Pack:set_path(path)
     if path ~= nil then
-        self.path = path
+        self.specs.vim.path = path
     end
 end
 
@@ -88,7 +55,7 @@ end
 
 function Pack:set_active(active)
     if active ~= nil then
-        self.active = active
+        self.specs.vim.active = active
     end
 end
 
@@ -104,70 +71,36 @@ end
 
 function Pack:set_rev(rev)
     if rev ~= nil then
-        self.rev = rev
+        self.specs.vim.rev = rev
     end
 end
 
 function Pack:set_branches(branches)
     if branches ~= nil then
-        self.branches = vim.tbl_extend("force", self.branches or {}, branches)
+        self.specs.vim.branches = vim.tbl_extend("force", self.branches or {}, branches)
     end
 end
 
 function Pack:set_tags(tags)
     if tags ~= nil then
-        self.tags = vim.tbl_extend("force", self.tags or {}, tags)
+        self.specs.vim.tags = vim.tbl_extend("force", self.tags or {}, tags)
     end
 end
 
 function Pack:set_stage(stage)
-    self.stage = stage
+    self.specs.normalize.stage = stage
     return self
 end
 
 function Pack:get_stage()
-    return self.stage
+    return self.specs.normalize.stage
 end
 
 function Pack:get_path()
-    if self.path ~= "" then
-        return self.path
+    if self.specs.vim.path ~= "" then
+        return self.specs.vim.path
     end
     return nil
-end
-
--- ---------------------------------------------------------------------------
--- Stage / status
--- ---------------------------------------------------------------------------
-
-function Pack:determine_stage(spec)
-    if utils.is_not_enabled(spec) then
-        return "disabled"
-    end
-
-    local on = spec.on
-    if
-        on ~= nil
-        and (
-            on.before ~= nil
-            or on.after ~= nil
-            or on.events ~= nil
-            or on.event ~= nil
-            or on.fts ~= nil
-            or on.ft ~= nil
-            or on.cmds ~= nil
-            or on.cmd ~= nil
-            or on.keys ~= nil
-        )
-    then
-        return "lazy"
-    end
-
-    if on ~= nil and on.stage == "now" then
-        return "now"
-    end
-
-    return "later"
 end
 
 function Pack:set_status(status)

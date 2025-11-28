@@ -26,54 +26,24 @@ function Manager.new(container, opts)
 end
 
 -- ============================================================================
--- Load Pack Specs from Directory
+-- Load Pack Specs (Now uses pre-normalized specs from config)
 -- ============================================================================
-function Manager:load_specs(specs_dir)
+function Manager:load_specs()
     local Utils = self.utils
-    local all_specs = {}
-    local seen_names = {}
-    local pre_path = vim.fn.stdpath("config")
-    local specs_path = pre_path .. (specs_dir or "/lua/packs")
+    local config = require("sage.config")
 
-    if vim.fn.isdirectory(specs_path) == 0 then
-        Utils.safe_notify(string.format("Specs directory not found: %s", specs_path), vim.log.levels.WARN)
-        return all_specs
-    end
-
-    local spec_files = Utils.get_lua_files_recursive_opts(specs_path, {
-        exclude_dirs = { "configs", "tests", "spec", "node_modules", ".git" },
-    })
-
-    if #spec_files == 0 then
-        Utils.safe_notify(string.format("No spec files found in: %s", specs_path), vim.log.levels.INFO)
-        return all_specs
-    end
-
-    for _, file in ipairs(spec_files) do
-        local success, file_specs = pcall(dofile, file)
-        if success and file_specs and type(file_specs) == "table" then
-            for _, spec in ipairs(file_specs) do
-                local src = spec.src or spec[1]
-                local name = spec.name or Utils.extract_name(src)
-                if not seen_names[name] then
-                    seen_names[name] = true
-                    table.insert(all_specs, spec)
-                else
-                    Utils.safe_notify(string.format("Duplicate spec: %s (skipping)", name), vim.log.levels.WARN)
-                end
-            end
-        elseif not success then
-            Utils.safe_notify(
-                string.format("Failed to load spec file: %s - %s", file, tostring(file_specs)),
-                vim.log.levels.ERROR
-            )
-        end
-    end
+    -- Specs are already loaded and normalized by config.setup()
+    local all_specs = config.get_all_specs()
 
     if #all_specs == 0 then
         Utils.safe_notify("No pack specs found", vim.log.levels.INFO)
-        return all_specs
+        return {}
     end
+
+    Utils.safe_notify(
+        string.format("Using %d pre-normalized specs from config", #all_specs),
+        vim.log.levels.DEBUG
+    )
 
     return all_specs
 end
@@ -103,11 +73,11 @@ function Manager:create_pack(spec)
     local TaskSystem = self.container:resolve("task_system")
 
     local Pack = pack.new(spec)
-    
+
     -- ✅ CRITICAL: Mark as NOT installed yet
     Pack.installed = false
     Pack.loaded = false
-    
+
     -- ✅ Wire the task system (sets up lifecycle, doesn't run it)
     TaskSystem.wire_pack(Pack)
 
@@ -167,8 +137,8 @@ function Manager:create_all_packs(specs)
     local packs = {}
     local seen_names = {}
     local create_start = vim.loop.hrtime()
-    local delay = 25
-    for i, spec in ipairs(specs) do
+
+    for _, spec in ipairs(specs) do
         local pack_create_start = vim.loop.hrtime()
 
         local pack = self:create_pack(spec)
@@ -191,15 +161,13 @@ function Manager:create_all_packs(specs)
         -- ✅ RESTORED: Emit pack:created event for each pack
         -- This allows dashboard to track individual pack creation
         vim.schedule(function()
-            vim.defer_fn(function()
-                Bus.emit("pack:created", {
-                    name = name,
-                    stage = pack:get_stage(),
-                    status = "created",
-                    message = ("%s created"):format(name),
-                    pack = pack,
-                })
-            end, delay * i)
+            Bus.emit("pack:created", {
+                name = name,
+                status = "created",
+                message = "Pack created",
+                pack = pack,
+                stage = pack:get_stage(),
+            })
         end)
 
         ::continue::
@@ -274,7 +242,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
     -- ✅ FIX: Call vim.pack.add with load = false to prevent auto-packadd
     -- We want to control when each pack gets loaded based on its stage
     local ok, err = pcall(function()
-        vim.pack.add(n_specs, { 
+        vim.pack.add(n_specs, {
             confirm = should_confirm,
             load = false  -- ✅ CRITICAL: Prevent automatic packadd
         })
@@ -312,7 +280,7 @@ function Manager:install_activate_batch(pack_groups, on_complete)
             local pack_name = pack.specs.normalize.name
 
             -- Check if pack was installed
-            local pack_info = vim.pack.get({ pack_name })
+            local pack_info = vim.pack.get(pack_name)
             if not pack_info then
                 Utils.safe_notify(
                     string.format("Pack '%s' not found after installation", pack_name),
@@ -485,7 +453,8 @@ function Manager:run_packs()
 
     local run_start = vim.loop.hrtime()
 
-    local all_specs = self:load_specs(self.opts.plugins_rpath)
+    -- Load pre-normalized specs from config
+    local all_specs = self:load_specs()
 
     if #all_specs == 0 then
         Utils.safe_notify("No pack specs found, nothing to do", vim.log.levels.INFO)
@@ -493,7 +462,7 @@ function Manager:run_packs()
     end
 
     Utils.safe_notify(
-        string.format("Loaded %d pack specs from %s", #all_specs, self.opts.directory or "/lua/packs"),
+        string.format("Processing %d pre-normalized pack specs", #all_specs),
         vim.log.levels.INFO
     )
 
