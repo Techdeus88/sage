@@ -4,6 +4,13 @@ U.init = function(container)
     U.container = container
 end
 
+function U.clean_value(v)
+    if type(v) == "string" then
+        return v:gsub("[\r\n]", " ") -- replace newline with a space
+    end
+    return v
+end
+
 function U.serialize(tbl, indent)
     indent = indent or 0
     local prefix = string.rep("  ", indent)
@@ -11,12 +18,13 @@ function U.serialize(tbl, indent)
 
     for k, v in pairs(tbl) do
         local key = string.format("[%s]", tostring(k))
+        v = U.clean_value(v)
 
         if type(v) == "table" then
             -- Open table
             table.insert(lines, string.format("%s%s = {", prefix, key))
             -- Recurse
-            table.insert(lines, serialize(v, indent + 1))
+            table.insert(lines, U.serialize(v, indent + 1))
             -- Close table
             table.insert(lines, string.format("%s}", prefix))
         else

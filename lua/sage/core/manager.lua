@@ -9,14 +9,17 @@ function Manager.new(container, opts)
 
     self.container = container
     self.opts = opts
-
-    self.bus = self.container:resolve("bus")
-    self.utils = self.container:resolve("utils")
     self.loader = nil
-
     self.packs = {}
 
     return self
+end
+
+function Manager:initialize(renderer)
+    self.bus = self.container:resolve("bus")
+    self.utils = self.container:resolve("utils")
+    self.renderer = renderer
+    self.renderer:register_listeners()
 end
 
 -- ============================================================================
@@ -118,15 +121,13 @@ function Manager:install_batch(packs, on_complete)
         pack.times.install_start = vim.loop.hrtime()
         pack:set_status("installing")
 
-        vim.schedule(function()
-            Bus.emit("pack:install:start", {
-                name = pack.name,
-                pack = pack,
-                stage = pack:get_stage(),
-                status = pack:get_status(),
-                message = "Installing " .. pack.name .. "...",
-            })
-        end)
+        Bus.emit("pack:install:start", {
+            name = pack.name,
+            pack = pack,
+            stage = pack:get_stage(),
+            status = pack:get_status(),
+            message = "Installing " .. pack.name .. "...",
+        })
     end
 
     -- Build specs for vim.pack.add
@@ -159,31 +160,27 @@ function Manager:install_batch(packs, on_complete)
                 pack:set_path(path)
                 pack:set_status("installed")
 
-                vim.schedule(function()
-                    Bus.emit("pack:install:finish", {
-                        name = pack.name,
-                        pack = pack,
-                        stage = pack:get_stage(),
-                        status = pack:get_status(),
-                        install_duration = install_ms,
-                        message = "Installed " .. pack.name,
-                    })
-                end)
+                Bus.emit("pack:install:finish", {
+                    name = pack.name,
+                    pack = pack,
+                    stage = pack:get_stage(),
+                    status = pack:get_status(),
+                    install_duration = install_ms,
+                    message = "Installed " .. pack.name,
+                })
             else
                 -- Failure
                 pack.installed = false
                 pack:set_status("failed")
                 pack.error = "Installation failed"
 
-                vim.schedule(function()
-                    Bus.emit("pack:failed", {
-                        name = pack.name,
-                        pack = pack,
-                        status = "failed",
-                        reason = "Installation failed",
-                        phase = "install",
-                    })
-                end)
+                Bus.emit("pack:failed", {
+                    name = pack.name,
+                    pack = pack,
+                    status = "failed",
+                    reason = "Installation failed",
+                    phase = "install",
+                })
             end
 
             -- Track completion
@@ -220,9 +217,7 @@ function Manager:initiate_stage_loading(by_stage)
 
     local function process_next_stage(index)
         if index > #stages then
-            vim.schedule(function()
-                Bus.emit("pack:all_stages_complete")
-            end)
+            Bus.emit("pack:all_stages_complete")
             return
         end
 
@@ -272,30 +267,24 @@ function Manager:create_all_packs(specs)
         table.insert(packs, pack)
 
         -- Stagger event emissions for visual feedback
-        vim.defer_fn(function()
-            vim.schedule(function()
-                Bus.emit("pack:created", {
-                    name = name,
-                    stage = pack:get_stage(),
-                    status = "created",
-                    message = "Pack created",
-                    pack = pack,
-                })
-            end)
-        end, i * delay)
+        Bus.emit("pack:created", {
+            name = name,
+            stage = pack:get_stage(),
+            status = "created",
+            message = "Pack created",
+            pack = pack,
+        })
 
         ::continue::
     end
 
     local total_create_time = (vim.loop.hrtime() - create_start) / 1e6
 
-    vim.schedule(function()
-        Bus.emit("pack:all_created", {
-            num_packs = #packs,
-            packs = packs,
-            create_duration = string.format("%.2f", total_create_time),
-        })
-    end)
+    Bus.emit("pack:all_created", {
+        num_packs = #packs,
+        packs = packs,
+        create_duration = string.format("%.2f", total_create_time),
+    })
 
     return packs
 end
@@ -416,13 +405,11 @@ function Manager:cleanup()
 
     local cleanup_duration = (vim.loop.hrtime() - cleanup_start) / 1e6
 
-    vim.schedule(function()
-        Bus.emit("manager:cleanup", {
-            duration = string.format("%.2f", cleanup_duration),
-            stats = stats,
-            success = #stats.errors == 0,
-        })
-    end)
+    Bus.emit("manager:cleanup", {
+        duration = string.format("%.2f", cleanup_duration),
+        stats = stats,
+        success = #stats.errors == 0,
+    })
 
     if #stats.errors > 0 then
         self.utils.safe_notify(

@@ -9,11 +9,13 @@ Bus._next_id = 0
 Bus.queue = {}
 Bus.queued_items = {} -- Track what's already queued
 Bus.logger = nil
+Bus.utils = nil
 
-function Bus:init(logger, utils)
-    if not self.logger and not self.utils then
-        self.logger = logger
-        self.utils = utils
+function Bus:init(container)
+    if not self.container then
+        self.container = container
+        self.logger = self.container:resolve("logger")
+        self.utils = self.container:resolve("utils")
     end
 end
 
@@ -51,8 +53,7 @@ function Bus.emit(event, data)
 end
 
 function Bus.log_event(event, data, self)
-    local s_data = self.utils.serialize(data, 2)
-    self.logger:debug("Bus", string.format("%s -> %s", event, string.gsub(vim.inspect(data), "\n", "")))
+    self.logger:debug("Bus", string.format("%s -> triggered by %s -> with status %s", event, data.name, data.status))
 end
 
 --- Remove a listener by ID

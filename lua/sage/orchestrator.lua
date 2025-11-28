@@ -21,6 +21,7 @@ function Orchestrator.new(opts)
     self.metrics = nil
     self.loader = nil
     self.ui = nil
+    self.utils = nil
     self.dashboard = nil
 
     return self
@@ -38,10 +39,11 @@ function Orchestrator:init_base()
 
     local Utils = require("sage.base.utils")
     Utils.init(self.container)
+    self.utils = Utils
 
     self.container:register("utils", function()
         return Utils
-    end)
+    end, { lazy = false })
 
     self:log("Orchestrator", "Base initialized (global, base, logger & utils)")
 end
@@ -63,7 +65,7 @@ function Orchestrator:init_bus()
     local EventBus = require("sage.core.bus")
     self.bus = EventBus
 
-    self.bus:init(self.logger, self.utils)
+    self.bus:init(self.container)
     self.container:register("bus", function()
         return self.bus
     end, { lazy = false })
@@ -124,22 +126,29 @@ function Orchestrator:init_ui()
         error("Manager, Bus must be initialized before UI")
     end
     -- Dashboard is a singleton table, not a class with .new()
-    local SageDashboard = require("sage.ui.dashboard")
     local SageElements = require("sage.ui.elements")
     local SageIcons = require("sage.ui.icons")
-    local SageDashboardManager = require("sage.ui.manager")
+    local dm = require("sage.ui.manager")
+    local db = require("sage.ui.dashboard")
+    local SageRenderer = require("sage.ui.renderer")
+    local SageRenderQueue = require("sage.ui.render_queue")
+
+    self.dm = dm.new(self.opts)
+    self.db = db
+    self.renderer = SageRenderer.new(self.bus, self.dm, SageRenderQueue)
+    -- NEW: wire the strategy object
+    self.dm.dashboard = self.db -- give it the UI
+    self.manager:initialize(self.renderer)
 
     -- Initialize the dashboard with options
-    SageDashboard:init(self.container, SageElements, SageIcons, self.opts)
+    self.dm.dashboard:init(self.container, SageElements, SageIcons, self.opts)
+
     self.container:register("dashboard", function()
-        return SageDashboard
+        return self.db
     end, { lazy = true })
 
-    -- NEW: wire the strategy object
-    local dm = SageDashboardManager.new(self.opts)
-    dm.dashboard = SageDashboard -- give it the UI
     self.container:register("dashboard_manager", function()
-        return dm
+        return self.dm
     end, { lazy = true })
 
     self:log("Orchestrator", "SageDashboard w/ manager registered")

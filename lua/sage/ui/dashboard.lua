@@ -48,7 +48,6 @@ Dashboard.rows_by_name = {}
 Dashboard.last_stats = nil
 Dashboard.header_height = 4
 Dashboard.footer_height = 6
-Dashboard.queue = { data = {}, first = 1, last = 0 }
 
 local STATUS_ORDER = {
     not_loaded = 1,
@@ -700,6 +699,8 @@ function Dashboard:add_pack(data)
         right_gravity = true,
     })
 
+    self:debug_log(string.format("add_pack for %s row was created", row.name))
+
     self:update_line(row)
 end
 
@@ -816,6 +817,7 @@ function Dashboard:update_line(row)
 
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
     self:update_footer_debounced()
+    self:debug_log(string.format("update_line hit by %s", row.name))
 end
 
 function Dashboard:update_line_internal(row)
@@ -1168,8 +1170,8 @@ end
 -- ============================================================================
 function Dashboard:open()
     if (not self.event_listeners or #self.event_listeners == 0) and self.bus then
-        self:listen()
-        self:sync_all_packs()
+        -- self:listen()
+        -- self:sync_all_packs()
     end
     if
         self.header_win
@@ -1241,227 +1243,227 @@ end
 
 -- Event Handlers
 -- ============================================================================
-function Dashboard:listen()
-    local Bus = self.bus
-    -- Store listener IDs for cleanup
-    self.event_listeners = {}
-
-    local function register(event_name, handler)
-        local id = Bus.on(event_name, function(data)
-            local ok, err = pcall(handler, data)
-            if not ok then
-                vim.notify(
-                    string.format("Dashboard event handler error [%s]: %s", event_name, err),
-                    vim.log.levels.ERROR
-                )
-            end
-        end)
-        table.insert(self.event_listeners, { event = event_name, id = id })
-    end
-
-    local function get_manager()
-        return self.container:resolve("manager")
-    end
-
-    register("pack:created", function(data)
-        self:add_pack(data)
-    end)
-
-    register("pack:all_created", function()
-        self:sync_all_packs()
-        vim.schedule(function()
-            self:resort_rows()
-            self:render_footer()
-            self:focus_content_window()
-        end)
-    end)
-
-    register("pack:install:start", function(data)
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        -- row.status:update(data.status)
-        -- row.status_two:update(data.status)
-        row.message:update(data.message)
-        self:update_line(row)
-    end)
-
-    register("pack:install:finish", function(data)
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        -- row.status:update(data.status)
-        -- row.status_two:update(data.status)
-        row.message:update(data.message)
-        row.install_duration:update(data.install_duration or 0)
-        self:update_line(row)
-    end)
-
-    register("pack:load:start", function(data)
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        row.message:update(data.message)
-        self:update_line(row)
-    end)
-
-    register("pack:load:complete", function(data)
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        row.message:update(data.message)
-        self:update_line(row)
-        self:resort_rows()
-    end)
-
-    register("pack:config:start", function(data)
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        -- row.status:update(data.status)
-        -- row.status_two:update(data.status)
-        row.message:update(data.message)
-        self:update_line(row)
-    end)
-
-    register("pack:config:finish", function(data)
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        -- row.status:update(data.status)
-        -- row.status_two:update(data.status)
-        row.message:update(data.message)
-        row.config_duration:update(data.config_duration or 0)
-        self:update_line(row)
-    end)
-
-    -- register("pack:lazy", function(data)
-    --     local row = self:find(data.name)
-    --     if not row then
-    --         return
-    --     end
-    --
-    --     row.status:update(data.status)
-    --     row.status_two:update(data.status)
-    --     row.message:update(data.message)
-    --
-    --     -- Only update if we have valid trigger data
-    --     if row.lazy and data.trigger and next(data.trigger) ~= nil then
-    --         row.lazy:update(data.trigger)
-    --     end
-    --     -- Don't update if data.trigger is nil - keep existing data
-    --
-    --     self:update_line(row)
-    -- end)
-
-    register("pack:failed", function(data)
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        row.status:update(data.status)
-        row.status_two:update(data.status)
-        row.error:update(data.error)
-        row.message:update("✖ " .. (data.reason or "Unknown error"))
-        self:update_line(row)
-    end)
-
-    register("pack:complete", function()
-        vim.schedule(function()
-            self:resort_rows()
-            vim.defer_fn(function()
-                self:focus_content_window()
-            end, 50)
-        end)
-    end)
-
-    register("pack:status:change", function(data)
-        local row = self:find(data.name)
-        if not row or data.new_status == "created" then
-            return
-        end
-        row.status:update(data.new_status)
-        row.status_two:update(data.new_status)
-        self:update_line(row)
-    end)
-
-    register("pack:task:start", function(data)
-        local Manager = get_manager()
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        local pack = Manager.packs[data.name]
-        if pack then
-            row.task_progress:update(pack:get_task_progress())
-        end
-        row.message:update(string.format("Running task: %s", data.task))
-        self:update_line(row)
-    end)
-
-    register("pack:task:complete", function(data)
-        local Manager = get_manager()
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        local pack = Manager.packs[data.name]
-        if pack then
-            row.task_progress:update(pack:get_task_progress())
-        end
-        if data.status == "success" then
-            row.message:update(string.format("✓ %s", data.task))
-        elseif data.status == "failed" then
-            row.message:update(string.format("✗ %s: %s", data.task, data.error or "failed"))
-        end
-        self:update_line(row)
-    end)
-
-    register("pack:lifecycle:complete", function(data)
-        local row = self:find(data.name)
-        if not row then
-            return
-        end
-        row.message:update("All tasks complete")
-        self:update_line(row)
-    end)
-end
-
-function Dashboard:unlisten()
-    if not self.event_listeners then
-        return
-    end
-    local Bus = self.bus
-
-    for _, listener in ipairs(self.event_listeners) do
-        -- Try multiple patterns for event cleanup based on common event bus APIs
-        local ok = pcall(function()
-            if type(Bus.off) == "function" then
-                -- Pattern 1: Event.off(event_name, id)
-                Bus.off(listener.event, listener.id)
-            elseif type(Bus.remove) == "function" then
-                -- Pattern 2: Event.remove(event_name, id)
-                Event.remove(listener.event, listener.id)
-            elseif type(Bus.unsubscribe) == "function" then
-                -- Pattern 3: Event.unsubscribe(id)
-                Bus.unsubscribe(listener.id)
-            end
-        end)
-
-        if not ok then
-            vim.notify(string.format("Failed to unregister event listener: %s", listener.event), vim.log.levels.WARN)
-        end
-    end
-
-    self.event_listeners = {}
-end
-
+-- function Dashboard:listen()
+--     local Bus = self.bus
+--     -- Store listener IDs for cleanup
+--     self.event_listeners = {}
+--
+--     local function register(event_name, handler)
+--         local id = Bus.on(event_name, function(data)
+--             local ok, err = pcall(handler, data)
+--             if not ok then
+--                 vim.notify(
+--                     string.format("Dashboard event handler error [%s]: %s", event_name, err),
+--                     vim.log.levels.ERROR
+--                 )
+--             end
+--         end)
+--         table.insert(self.event_listeners, { event = event_name, id = id })
+--     end
+--
+--     local function get_manager()
+--         return self.container:resolve("manager")
+--     end
+--
+--     register("pack:created", function(data)
+--         self:add_pack(data)
+--     end)
+--
+--     register("pack:all_created", function()
+--         self:sync_all_packs()
+--         vim.schedule(function()
+--             self:resort_rows()
+--             self:render_footer()
+--             self:focus_content_window()
+--         end)
+--     end)
+--
+--     register("pack:install:start", function(data)
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         -- row.status:update(data.status)
+--         -- row.status_two:update(data.status)
+--         row.message:update(data.message)
+--         self:update_line(row)
+--     end)
+--
+--     register("pack:install:finish", function(data)
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         -- row.status:update(data.status)
+--         -- row.status_two:update(data.status)
+--         row.message:update(data.message)
+--         row.install_duration:update(data.install_duration or 0)
+--         self:update_line(row)
+--     end)
+--
+--     register("pack:load:start", function(data)
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         row.message:update(data.message)
+--         self:update_line(row)
+--     end)
+--
+--     register("pack:load:complete", function(data)
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         row.message:update(data.message)
+--         self:update_line(row)
+--         self:resort_rows()
+--     end)
+--
+--     register("pack:config:start", function(data)
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         -- row.status:update(data.status)
+--         -- row.status_two:update(data.status)
+--         row.message:update(data.message)
+--         self:update_line(row)
+--     end)
+--
+--     register("pack:config:finish", function(data)
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         -- row.status:update(data.status)
+--         -- row.status_two:update(data.status)
+--         row.message:update(data.message)
+--         row.config_duration:update(data.config_duration or 0)
+--         self:update_line(row)
+--     end)
+--
+--     -- register("pack:lazy", function(data)
+--     --     local row = self:find(data.name)
+--     --     if not row then
+--     --         return
+--     --     end
+--     --
+--     --     row.status:update(data.status)
+--     --     row.status_two:update(data.status)
+--     --     row.message:update(data.message)
+--     --
+--     --     -- Only update if we have valid trigger data
+--     --     if row.lazy and data.trigger and next(data.trigger) ~= nil then
+--     --         row.lazy:update(data.trigger)
+--     --     end
+--     --     -- Don't update if data.trigger is nil - keep existing data
+--     --
+--     --     self:update_line(row)
+--     -- end)
+--
+--     register("pack:failed", function(data)
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         row.status:update(data.status)
+--         row.status_two:update(data.status)
+--         row.error:update(data.error)
+--         row.message:update("✖ " .. (data.reason or "Unknown error"))
+--         self:update_line(row)
+--     end)
+--
+--     register("pack:complete", function()
+--         vim.schedule(function()
+--             self:resort_rows()
+--             vim.defer_fn(function()
+--                 self:focus_content_window()
+--             end, 50)
+--         end)
+--     end)
+--
+--     register("pack:status:change", function(data)
+--         local row = self:find(data.name)
+--         if not row or data.new_status == "created" then
+--             return
+--         end
+--         row.status:update(data.new_status)
+--         row.status_two:update(data.new_status)
+--         self:update_line(row)
+--     end)
+--
+--     register("pack:task:start", function(data)
+--         local Manager = get_manager()
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         local pack = Manager.packs[data.name]
+--         if pack then
+--             row.task_progress:update(pack:get_task_progress())
+--         end
+--         row.message:update(string.format("Running task: %s", data.task))
+--         self:update_line(row)
+--     end)
+--
+--     register("pack:task:complete", function(data)
+--         local Manager = get_manager()
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         local pack = Manager.packs[data.name]
+--         if pack then
+--             row.task_progress:update(pack:get_task_progress())
+--         end
+--         if data.status == "success" then
+--             row.message:update(string.format("✓ %s", data.task))
+--         elseif data.status == "failed" then
+--             row.message:update(string.format("✗ %s: %s", data.task, data.error or "failed"))
+--         end
+--         self:update_line(row)
+--     end)
+--
+--     register("pack:lifecycle:complete", function(data)
+--         local row = self:find(data.name)
+--         if not row then
+--             return
+--         end
+--         row.message:update("All tasks complete")
+--         self:update_line(row)
+--     end)
+-- end
+--
+-- function Dashboard:unlisten()
+--     if not self.event_listeners then
+--         return
+--     end
+--     local Bus = self.bus
+--
+--     for _, listener in ipairs(self.event_listeners) do
+--         -- Try multiple patterns for event cleanup based on common event bus APIs
+--         local ok = pcall(function()
+--             if type(Bus.off) == "function" then
+--                 -- Pattern 1: Event.off(event_name, id)
+--                 Bus.off(listener.event, listener.id)
+--             elseif type(Bus.remove) == "function" then
+--                 -- Pattern 2: Event.remove(event_name, id)
+--                 Event.remove(listener.event, listener.id)
+--             elseif type(Bus.unsubscribe) == "function" then
+--                 -- Pattern 3: Event.unsubscribe(id)
+--                 Bus.unsubscribe(listener.id)
+--             end
+--         end)
+--
+--         if not ok then
+--             vim.notify(string.format("Failed to unregister event listener: %s", listener.event), vim.log.levels.WARN)
+--         end
+--     end
+--
+--     self.event_listeners = {}
+-- end
+--
 -- ============================================================================
 -- Window Focus Management
 -- ============================================================================
@@ -1572,6 +1574,7 @@ function Dashboard:init(container, elements, icons, opts)
     self.bus = self.container:resolve("bus")
     self.manager = self.container:resolve("manager")
     self.utils = self.container:resolve("utils")
+    self.logger = self.container:resolve("logger")
 
     self:setup_debounced_footer()
 
@@ -1712,6 +1715,10 @@ function Dashboard:init(container, elements, icons, opts)
         }
         print(vim.inspect(info))
     end, { nargs = 1, desc = "Debug lazy element for a pack" })
+end
+
+function Dashboard:debug_log(msg)
+    self.logger:debug("Dashboard", msg)
 end
 
 return Dashboard

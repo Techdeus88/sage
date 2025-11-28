@@ -34,30 +34,24 @@ function Loader:load_pack(pack)
     end
 
     pack:set_status("loading")
-    
-    vim.schedule(function()
-        self.bus.emit("pack:loading", { name = name, pack = pack })
-    end)
+
+    self.bus.emit("pack:loading", { name = name, pack = pack })
 
     local ok, err = pcall(vim.cmd.packadd, name)
 
     if not ok then
         pack:set_status("failed")
         pack.error = err
-        
-        vim.schedule(function()
-            self.bus.emit("pack:failed", { name = name, pack = pack, error = err })
-        end)
-        
+
+        self.bus.emit("pack:failed", { name = name, pack = pack, error = err })
+
         return false, err
     end
 
     pack.loaded = true
     pack:set_status("loaded")
-    
-    vim.schedule(function()
-        self.bus.emit("pack:loaded", { name = name, pack = pack })
-    end)
+
+    self.bus.emit("pack:loaded", { name = name, pack = pack })
 
     self:configure_pack(pack)
 
@@ -84,10 +78,8 @@ function Loader:load_pack_immediate(pack, on_complete)
     end
 
     pack:set_status("loading")
-    
-    vim.schedule(function()
-        self.bus.emit("pack:loading", { name = name, pack = pack })
-    end)
+
+    self.bus.emit("pack:loading", { name = name, pack = pack })
 
     local load_start = vim.loop.hrtime()
     local ok, err = pcall(vim.cmd.packadd, name)
@@ -96,11 +88,9 @@ function Loader:load_pack_immediate(pack, on_complete)
     if not ok then
         pack:set_status("failed")
         pack.error = err
-        
-        vim.schedule(function()
-            self.bus.emit("pack:failed", { name = name, pack = pack, error = err })
-        end)
-        
+
+        self.bus.emit("pack:failed", { name = name, pack = pack, error = err })
+
         if on_complete then
             on_complete(false)
         end
@@ -111,14 +101,12 @@ function Loader:load_pack_immediate(pack, on_complete)
     pack.times = pack.times or {}
     pack.times.load_duration = string.format("%.2f", load_duration)
     pack:set_status("loaded")
-    
-    vim.schedule(function()
-        self.bus.emit("pack:loaded", {
-            name = name,
-            pack = pack,
-            load_duration = load_duration,
-        })
-    end)
+
+    self.bus.emit("pack:loaded", {
+        name = name,
+        pack = pack,
+        load_duration = load_duration,
+    })
 
     self:configure_pack(pack, function(config_success)
         if on_complete then
@@ -142,15 +130,13 @@ function Loader:configure_pack(pack, on_complete)
         pack:set_status("ready")
         pack.times.config_duration = "0.00"
 
-        vim.schedule(function()
-            self.bus.emit("pack:config:finish", {
-                name = name,
-                pack = pack,
-                status = pack:get_status(),
-                config_duration = 0,
-                message = "No config for " .. name,
-            })
-        end)
+        self.bus.emit("pack:config:finish", {
+            name = name,
+            pack = pack,
+            status = pack:get_status(),
+            config_duration = 0,
+            message = "No config for " .. name,
+        })
 
         if on_complete then
             on_complete(true)
@@ -160,14 +146,12 @@ function Loader:configure_pack(pack, on_complete)
 
     pack:set_status("configuring")
 
-    vim.schedule(function()
-        self.bus.emit("pack:config:start", {
-            name = name,
-            pack = pack,
-            status = pack:get_status(),
-            message = "Configuring " .. name .. "...",
-        })
-    end)
+    self.bus.emit("pack:config:start", {
+        name = name,
+        pack = pack,
+        status = pack:get_status(),
+        message = "Configuring " .. name .. "...",
+    })
 
     local config_start = vim.loop.hrtime()
     local ok, err = pcall(data.config)
@@ -179,14 +163,12 @@ function Loader:configure_pack(pack, on_complete)
         pack:set_status("failed")
         pack.error = err
 
-        vim.schedule(function()
-            self.bus.emit("pack:failed", {
-                name = name,
-                pack = pack,
-                error = err,
-                phase = "config",
-            })
-        end)
+        self.bus.emit("pack:failed", {
+            name = name,
+            pack = pack,
+            error = err,
+            phase = "config",
+        })
 
         if on_complete then
             on_complete(false)
@@ -196,15 +178,13 @@ function Loader:configure_pack(pack, on_complete)
 
     pack:set_status("ready")
 
-    vim.schedule(function()
-        self.bus.emit("pack:config:finish", {
-            name = name,
-            pack = pack,
-            status = pack:get_status(),
-            message = "Configured " .. name,
-            config_duration = config_duration,
-        })
-    end)
+    self.bus.emit("pack:config:finish", {
+        name = name,
+        pack = pack,
+        status = pack:get_status(),
+        message = "Configured " .. name,
+        config_duration = config_duration,
+    })
 
     if on_complete then
         on_complete(true)
@@ -309,13 +289,11 @@ function Loader:load_lazy_stage(packs, on_complete)
             self:setup_filetype_triggers(pack, triggers.fts or triggers.ft)
         end
 
-        vim.schedule(function()
-            self.bus.emit("pack:lazy", {
-                name = pack:get_name(),
-                pack = pack,
-                triggers = triggers,
-            })
-        end)
+        self.bus.emit("pack:lazy", {
+            name = pack:get_name(),
+            pack = pack,
+            triggers = triggers,
+        })
     end
 
     if on_complete then
@@ -435,15 +413,12 @@ function Loader:strategy_idle(packs, on_complete)
         return true
     end
 
-    local autocmd_id = vim.api.nvim_create_autocmd(
-        { "CursorMoved", "TextChanged", "TextChangedI", "CmdlineEnter" },
-        {
-            callback = function()
-                last_input_time = vim.loop.hrtime()
-            end,
-            desc = "Track idle time for lazy loader",
-        }
-    )
+    local autocmd_id = vim.api.nvim_create_autocmd({ "CursorMoved", "TextChanged", "TextChangedI", "CmdlineEnter" }, {
+        callback = function()
+            last_input_time = vim.loop.hrtime()
+        end,
+        desc = "Track idle time for lazy loader",
+    })
     table.insert(self.autocmds, autocmd_id)
 
     local timer = vim.uv.new_timer()
@@ -467,13 +442,11 @@ end
 function Loader:load_disabled_stage(packs, on_complete)
     for _, pack in ipairs(packs) do
         pack:set_status("disabled")
-        
-        vim.schedule(function()
-            self.bus.emit("pack:disabled", {
-                name = pack:get_name(),
-                pack = pack,
-            })
-        end)
+
+        self.bus.emit("pack:disabled", {
+            name = pack:get_name(),
+            pack = pack,
+        })
     end
 
     if on_complete then
