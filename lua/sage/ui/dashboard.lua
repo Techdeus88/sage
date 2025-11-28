@@ -280,7 +280,7 @@ function Dashboard:display_pack_comparison(pack_name)
     local header_text = string.format("Pack: %s", pack_name)
     local header_padding = math.floor((inner_width - #header_text - 2) / 2) -- -2 for border chars
 
-    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗") ..
+    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗" ..
         "║ "
             .. string.rep(" ", header_padding)
             .. header_text
