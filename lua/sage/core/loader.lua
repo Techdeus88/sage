@@ -33,8 +33,8 @@ function Loader:load_pack_safe(pack, reason)
     pack:set_status("loading")
 
     -- Emit loading start event the Dashboard actually listens to
-    vim.schedule(function()
-        vim.defer_fn(function()
+    
+        vim.schedule(function()
             self.bus.emit("pack:load:start", {
                 name = name,
                 status = pack:get_status(),
@@ -42,9 +42,8 @@ function Loader:load_pack_safe(pack, reason)
                 message = reason or ("Loading " .. name .. "..."),
                 pack = pack,
             })
-        end, delay * index)
-    end)
-
+        end)
+    
     pack.times = pack.times or {}
     local load_start = vim.loop.hrtime()
 
@@ -59,20 +58,20 @@ function Loader:load_pack_safe(pack, reason)
         pack:set_status("failed")
         self.utils.safe_notify(string.format("Pack '%s' failed to load: %s", name, tostring(err)), vim.log.levels.ERROR)
 
-        vim.defer_fn(function()
+        vim.schedule(function()
             self.bus.emit("pack:failed", {
                 name = name,
                 pack = pack,
                 error = err,
                 phase = "load",
             })
-        end, delay * index)
+        end)
 
         return false
     end
 
     -- ✅ Tell Dashboard that loading finished
-    vim.defer_fn(function()
+    vim.schedule(function()
         self.bus.emit("pack:load:complete", {
             name = name,
             pack = pack,
@@ -81,7 +80,7 @@ function Loader:load_pack_safe(pack, reason)
             load_duration = load_ms,
             message = "Loaded " .. name,
         })
-    end, delay * index + 50)
+    end)
 
     return true
 end
@@ -256,7 +255,7 @@ function Loader:load_pack(pack)
     -- Set loading state
     pack:set_status("loading")
     vim.schedule(function()
-    self.bus.emit("pack:loading", { name = name, pack = pack }) -- ✅ Fixed
+        self.bus.emit("pack:loading", { name = name, pack = pack }) -- ✅ Fixed
     end)
     -- Execute packadd
     local ok, err = pcall(vim.cmd.packadd, name)
@@ -264,7 +263,7 @@ function Loader:load_pack(pack)
     if not ok then
         pack:set_status("failed")
         pack.error = err
-        
+
         self.bus.emit("pack:failed", { name = name, pack = pack, error = err }) -- ✅ Fixed
         return false, err
     end
@@ -273,7 +272,7 @@ function Loader:load_pack(pack)
     pack.loaded = true
     pack:set_status("loaded")
     vim.schedule(function()
-    self.bus.emit("pack:loaded", { name = name, pack = pack }) -- ✅ Fixed
+        self.bus.emit("pack:loaded", { name = name, pack = pack }) -- ✅ Fixed
     end)
     -- Trigger configuration phase
     self:configure_pack(pack)
@@ -330,7 +329,7 @@ function Loader:load_pack_immediate(pack, on_complete)
             pack = pack,
             load_duration = load_duration,
         })
-            end)
+    end)
 
     self:configure_pack(pack, function(config_success)
         if on_complete then
@@ -435,12 +434,12 @@ function Loader:load_lazy_stage(packs, on_complete)
         end
 
         vim.schedule(function()
-        Bus.emit("pack:lazy", {
-            name = pack:get_name(),
-            pack = pack,
-            triggers = triggers,
-        })
-                end)
+            Bus.emit("pack:lazy", {
+                name = pack:get_name(),
+                pack = pack,
+                triggers = triggers,
+            })
+        end)
     end
 
     if on_complete then

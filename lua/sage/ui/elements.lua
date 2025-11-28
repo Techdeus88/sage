@@ -250,7 +250,7 @@ end
 function LazyElement:get_info()
     if not self.value or not next(self.value) then
         return { type = "none", values = {}, count = 0 }
-    end  
+    end
     local trigger_type, trigger_values = self:_parse(self.value)
     return {
         type = trigger_type,

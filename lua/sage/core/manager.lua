@@ -150,7 +150,6 @@ function Manager:install_and_classify_batch(packs)
     end)
 end
 
-
 function Manager:install_batch(packs, on_complete)
     local Bus = self.bus
     local delay = 75
@@ -177,10 +176,10 @@ function Manager:install_batch(packs, on_complete)
 
         vim.schedule(function()
             Bus.emit("pack:install:start", {
-                name    = pack.name,
-                pack    = pack,
-                stage   = pack:get_stage(),
-                status  = pack:get_status(),
+                name = pack.name,
+                pack = pack,
+                stage = pack:get_stage(),
+                status = pack:get_status(),
                 message = "Installing " .. pack.name .. "...",
             })
         end)
@@ -219,12 +218,12 @@ function Manager:install_batch(packs, on_complete)
 
                 vim.schedule(function()
                     Bus.emit("pack:install:finish", {
-                        name             = pack.name,
-                        pack             = pack,
-                        stage            = pack:get_stage(),
-                        status           = pack:get_status(),
+                        name = pack.name,
+                        pack = pack,
+                        stage = pack:get_stage(),
+                        status = pack:get_status(),
                         install_duration = install_ms,
-                        message          = "Installed " .. pack.name,
+                        message = "Installed " .. pack.name,
                     })
                 end)
             else
@@ -235,11 +234,11 @@ function Manager:install_batch(packs, on_complete)
 
                 vim.schedule(function()
                     Bus.emit("pack:failed", {
-                        name   = pack.name,
-                        pack   = pack,
+                        name = pack.name,
+                        pack = pack,
                         status = "failed",
                         reason = "Installation failed",
-                        phase  = "install",
+                        phase = "install",
                     })
                 end)
             end
@@ -255,7 +254,7 @@ function Manager:install_batch(packs, on_complete)
 
                 on_complete(#all_success == total_count)
             end
-        end
+        end,
     })
 end
 
@@ -286,7 +285,7 @@ end
 function Manager:create_all_packs(specs)
     local Utils = self.utils
     local Bus = self.bus
-    local delay = 115
+    local delay = 75
 
     if #specs == 0 then
         Utils.safe_notify("No pack specs to create", vim.log.levels.INFO)
@@ -471,7 +470,7 @@ function Manager:run_packs()
     if show_dashboard then
         vim.defer_fn(function()
             Dashboard:open()
-        end, 500)
+        end, 300)
     end
 
     -- Create pack objects from specs

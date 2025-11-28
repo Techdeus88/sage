@@ -393,7 +393,7 @@ function Dashboard:refresh_for_tab()
             return true
         end
         if filter == "loaded" or filter == "configured" or filter == "ready" then
-            return row.status.value == "loaded"
+            return row.status.value == "loaded" or row.status.value == "ready"
         end
         if filter == "not_loaded" then
             local pack = self.manager.packs[row.name]
@@ -663,6 +663,7 @@ function Dashboard:add_pack(data)
         message = elem.TextElement.new("message", message),
         deps = elem.ListElement.new("deps", utils.get_dep_names(n_spec.data.depends or {})),
         lazy = elem.LazyElement.new("lazy", trigger_data),
+        error = elem.TextElement.new("error", ""),
     }
 
     self.rows_by_name[name] = row
@@ -704,8 +705,9 @@ function Dashboard:update_line(row)
     local config_button = string.format("[%s %s]", icons.config or "󰒓", config)
 
     local deps_buttons = row.deps:render_buttons()
-    local deps_text = (#deps_buttons > 0) and (table.concat(deps_buttons, " ")) or ""
     local message_text = row.message:render()
+    local deps_text = (#deps_buttons > 0) and (table.concat(deps_buttons, " ")) or ""
+    local error_text = row.error ~= nil and row.error
 
     -- In dashboard.lua, update_line function around line 520:
     local lazy_text = ""
@@ -744,7 +746,8 @@ function Dashboard:update_line(row)
         config_button,
         message_text,
         deps_text,
-        lazy_text
+        lazy_text,
+        error_text
     )
 
     local padded = add_padding_to_line(line_text, 1)
@@ -1341,6 +1344,7 @@ function Dashboard:listen()
         end
         row.status:update(data.status)
         row.status_two:update(data.status)
+        row.error:update(data.error)
         row.message:update("✖ " .. (data.reason or "Unknown error"))
         self:update_line(row)
     end)
@@ -1361,6 +1365,7 @@ function Dashboard:listen()
         end
         row.status:update(data.new_status)
         row.status_two:update(data.new_status)
+
         row.message:update(string.format("%s", data.new_status:upper()))
         self:update_line(row)
     end)
