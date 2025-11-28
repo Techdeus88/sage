@@ -149,8 +149,8 @@ function Manager:install_and_classify_batch(packs)
         end
     end)
 end
+
 function Manager:install_batch(packs, on_complete)
-    local self = self
     local Bus = self.bus
 
     if #packs == 0 then
@@ -164,7 +164,7 @@ function Manager:install_batch(packs, on_complete)
     local completed_count = 0
     local total_count = #packs
     local pack_lookup = {}
-
+    
     -- Build lookup table: spec name -> pack object
     for _, pack in ipairs(packs) do
         pack_lookup[pack.name] = pack
@@ -174,10 +174,10 @@ function Manager:install_batch(packs, on_complete)
 
         vim.schedule(function()
             Bus.emit("pack:install:start", {
-                name = pack.name,
-                pack = pack,
-                stage = pack:get_stage(),
-                status = pack:get_status(),
+                name    = pack.name,
+                pack    = pack,
+                stage   = pack:get_stage(),
+                status  = pack:get_status(),
                 message = "Installing " .. pack.name .. "...",
             })
         end)
@@ -189,197 +189,70 @@ function Manager:install_batch(packs, on_complete)
     end, packs)
 
     -- Use the callback! Called once per pack when it completes
-    vim.pack.add(install_specs, {
-        confirm = self.opts.add_opts.confirm,
-        load = function(spec, success, path)
-            local Pack = self.packs[spec.name]
-
-            if not Pack then
+    vim.pack.add(install_specs, { 
+        confirm = self.opts.add_opts.confirm, 
+        load = false,
+        callback = function(spec, success, path)
+            local pack = pack_lookup[spec.name]
+            
+            if not pack then
                 return -- Shouldn't happen, but be safe
             end
-
+            
             local now = vim.loop.hrtime()
             local install_ms = 0
-
-            if Pack.times.install_start then
-                install_ms = (now - Pack.times.install_start) / 1e6
-                Pack.times.install_duration = string.format("%.2f", install_ms)
+            
+            if pack.times.install_start then
+                install_ms = (now - pack.times.install_start) / 1e6
+                pack.times.install_duration = string.format("%.2f", install_ms)
             end
-
+            
             if success and path then
                 -- ✅ Installation succeeded
-                Pack.installed = true
-                Pack:set_path(path)
-                Pack:set_status("installed")
+                pack.installed = true
+                pack:set_path(path)
+                pack:set_status("installed")
 
                 vim.schedule(function()
                     Bus.emit("pack:install:finish", {
-                        name = Pack.name,
-                        pack = Pack,
-                        stage = Pack:get_stage(),
-                        status = Pack:get_status(),
+                        name             = pack.name,
+                        pack             = pack,
+                        stage            = pack:get_stage(),
+                        status           = pack:get_status(),
                         install_duration = install_ms,
-                        message = "Installed " .. Pack.name,
+                        message          = "Installed " .. pack.name,
                     })
                 end)
             else
                 -- ❌ Installation failed
-                Pack.installed = false
-                Pack:set_status("failed")
-                Pack.error = "Installation failed"
+                pack.installed = false
+                pack:set_status("failed")
+                pack.error = "Installation failed"
 
                 vim.schedule(function()
                     Bus.emit("pack:failed", {
-                        name = Pack.name,
-                        pack = Pack,
+                        name   = pack.name,
+                        pack   = pack,
                         status = "failed",
                         reason = "Installation failed",
-                        phase = "install",
+                        phase  = "install",
                     })
                 end)
             end
-
+            
             -- Track completion
             completed_count = completed_count + 1
-
+            
             if completed_count >= total_count and on_complete then
                 -- All packs done (success or failure)
-                local all_success = vim.tbl_filter(function(p)
-                    return p.installed
+                local all_success = vim.tbl_filter(function(p) 
+                    return p.installed 
                 end, packs)
-
+                
                 on_complete(#all_success == total_count)
             end
-        end,
+        end
     })
-end
-
-function Manager:install_batch(packs, on_complete)
-    local Bus = self.bus
-
-    if #packs == 0 then
-        if on_complete then
-            on_complete(true)
-        end
-        return
-    end
-
-    -- Tell vim.pack which specs to install
-    local install_specs = vim.tbl_map(function(p)
-        return p.specs.normalize
-    end, packs)
-
-    -- Mark as installing + emit start events
-    for _, pack in ipairs(packs) do
-        pack.times = pack.times or {}
-        pack.times.install_start = vim.loop.hrtime()
-
-        pack:set_status("installing")
-
-        vim.schedule(function()
-            Bus.emit("pack:install:start", {
-                name = pack.name,
-                pack = pack,
-                stage = pack:get_stage(),
-                status = pack:get_status(),
-                message = "Installing " .. pack.name .. "...",
-            })
-        end)
-    end
-
-    -- Submit to vim.pack.add (all at once for efficiency)
-    vim.pack.add(install_specs, { confirm = self.opts.add_opts.confirm, load = false })
-
-    -- Poll for completion
-    self:poll_installation_complete(packs, on_complete)
-end
-
-function Manager:poll_installation_complete(packs, on_complete)
-    local Bus = self.bus
-
-    if #packs == 0 then
-        if on_complete then
-            on_complete(true)
-        end
-        return
-    end
-
-    local timer = vim.uv.new_timer()
-    local check_interval = 100 -- ms
-    local max_attempts = 600 -- ~10 seconds total
-    local attempts = 0
-
-    timer:start(
-        check_interval,
-        check_interval,
-        vim.schedule_wrap(function()
-            attempts = attempts + 1
-            local all_done = true
-
-            for _, pack in ipairs(packs) do
-                if pack:get_status() == "installing" then
-                    local pack_info = vim.pack.get({ pack.name })
-
-                    if pack_info and pack_info.path then
-                        -- ✅ Installation confirmed
-                        pack.installed = true
-                        pack:set_path(pack_info.path)
-                        pack:set_status("installed")
-
-                        local now = vim.loop.hrtime()
-                        pack.times = pack.times or {}
-
-                        local install_ms = 0
-                        if pack.times.install_start then
-                            install_ms = (now - pack.times.install_start) / 1e6
-                            pack.times.install_duration = string.format("%.2f", install_ms)
-                        end
-
-                        vim.schedule(function()
-                            Bus.emit("pack:install:finish", {
-                                name = pack.name,
-                                pack = pack,
-                                stage = pack:get_stage(),
-                                status = pack:get_status(),
-                                install_duration = install_ms,
-                                message = "Installed " .. pack.name,
-                            })
-                        end)
-                    else
-                        all_done = false
-                    end
-                end
-            end
-
-            if all_done or attempts >= max_attempts then
-                timer:close()
-
-                -- Handle timeouts
-                if attempts >= max_attempts then
-                    for _, pack in ipairs(packs) do
-                        if pack:get_status() == "installing" then
-                            pack:set_status("failed")
-                            pack.error = "Installation timeout"
-
-                            vim.schedule(function()
-                                Bus.emit("pack:failed", {
-                                    name = pack.name,
-                                    pack = pack,
-                                    status = "failed",
-                                    reason = "Installation timeout",
-                                    phase = "install",
-                                })
-                            end)
-                        end
-                    end
-                end
-
-                if on_complete then
-                    on_complete(all_done)
-                end
-            end
-        end)
-    )
 end
 
 function Manager:initiate_stage_loading(by_stage)
