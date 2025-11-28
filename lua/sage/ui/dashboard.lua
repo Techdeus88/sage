@@ -179,6 +179,26 @@ function Dashboard:setup_close_keymaps()
     end
 end
 
+local function get_value(name, key, level)
+    local specs = require("sage.config").specs
+    local pack
+    local n_pack
+
+    for _, spec in ipairs(specs) do
+        if spec.name == name then
+            pack = spec
+            n_pack = vim.pack.get({name})[1]
+        end
+    end
+
+    if level == 1 then
+        local pack_value = pack[key]
+        local n_pack_value n_pack[key]
+    end
+
+    return pack_value, n_pack_value
+end
+
 local function format_table_value(key, val, val_type, indent, max_length)
     indent = string.rep(" ", indent or 1)
 
@@ -209,7 +229,7 @@ local function format_table_value(key, val, val_type, indent, max_length)
     return f_value
 end
 
-local function format_table(lines, tbl, indent, max_length, num_tables)
+local function format_table(lines, tbl_order, indent, max_length, num_tables)
     lines = lines or {}
     max_length = max_length or 10
     indent = indent or 0
@@ -217,6 +237,11 @@ local function format_table(lines, tbl, indent, max_length, num_tables)
     if not tbl or indent > max_length then
         return lines
     end
+
+    for _, key in tbl_order do
+        local s_value = get_value(key, 1)
+    end
+    
 
     return lines
 end
@@ -262,13 +287,15 @@ function Dashboard:display_pack_comparison(pack_name)
             .. header_text
             .. string.rep(" ", inner_width - header_padding - #header_text - 3)
             .. "║"
+
     )
     table.insert(lines, "╚" .. string.rep("═", inner_width - 2) .. "╝")
     table.insert(lines, "")
 
     -- Content
     local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)" }
-    content_lines = vim.list_extend(content_lines, format_table(content_lines, pack, 0, 8, 1))
+    local top_spec = { "name", "src", "active", "installed", "loaded", "version", "stage", "status" }
+    content_lines = vim.list_extend(content_lines, format_table(content_lines, top_spec, 0, 8, 1))
     for _, content_text in ipairs(content_lines) do
         local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
         table.insert(lines, string.rep(" ", content_padding) .. content_text)
@@ -308,6 +335,7 @@ function Dashboard:display_pack_comparison(pack_name)
     for _, line in ipairs(lines) do
         table.insert(padded_lines, "  " .. line) -- Add consistent left padding
     end
+    o
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)

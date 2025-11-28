@@ -295,8 +295,9 @@ function Manager:create_all_packs(specs)
     local packs = {}
     local seen_names = {}
     local create_start = vim.loop.hrtime()
+    local i = math.random(1, 10)
 
-    for i, spec in ipairs(specs) do
+    for _, spec in ipairs(specs) do
         local pack_create_start = vim.loop.hrtime()
 
         local pack = self:create_pack(spec)
@@ -600,6 +601,6 @@ function Manager:cleanup()
     end
 
     return stats
-end
 
+end
 return Manager

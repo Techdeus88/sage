@@ -9,11 +9,7 @@ local Container = require("sage.core.container").get_instance
 ---@return Sage.Spec[], string[]
 local function get_specs_and_names()
     local config = require("sage.config")
-    local plugin_fpaths = vim.fn.glob(
-        config.opts.config_path .. config.opts.plugins_rpath .. "*.lua",
-        true,
-        true
-    ) ---@type string[]
+    local plugin_fpaths = vim.fn.glob(config.opts.config_path .. config.opts.plugins_rpath .. "*.lua", true, true) ---@type string[]
     local specs, names = {}, {} ---@type Sage.Spec[], string[]
 
     for _, plugin_fpath in ipairs(plugin_fpaths) do
@@ -22,17 +18,11 @@ local function get_specs_and_names()
 
         if not success then
             vim.schedule(function()
-                vim.notify(
-                    ("Failed to load plugin spec for %s"):format(plugin_name),
-                    vim.log.levels.ERROR
-                )
+                vim.notify(("Failed to load plugin spec for %s"):format(plugin_name), vim.log.levels.ERROR)
             end)
         elseif type(spec) ~= "table" then
             vim.schedule(function()
-                vim.notify(
-                    ("Invalid spec for %s, not a table"):format(plugin_name),
-                    vim.log.levels.ERROR
-                )
+                vim.notify(("Invalid spec for %s, not a table"):format(plugin_name), vim.log.levels.ERROR)
             end)
         else
             if spec.depends and type(spec.depends) == "table" then
@@ -56,10 +46,7 @@ local function get_specs_and_names()
                 names[#names + 1] = vim.fn.fnamemodify(spec.src, ":t")
             else
                 vim.schedule(function()
-                    vim.notify(
-                        ("Invalid spec for %s, missing src"):format(plugin_name),
-                        vim.log.levels.ERROR
-                    )
+                    vim.notify(("Invalid spec for %s, missing src"):format(plugin_name), vim.log.levels.ERROR)
                 end)
             end
         end
@@ -72,11 +59,7 @@ end
 ---@return string[]
 local function get_package_names()
     local config = require("sage.config")
-    local package_fpaths = vim.fn.glob(
-        config.opts.data_path .. config.opts.packages_rpath .. "*/",
-        false,
-        true
-    ) ---@type string[]
+    local package_fpaths = vim.fn.glob(config.opts.data_path .. config.opts.packages_rpath .. "*/", false, true) ---@type string[]
     local package_names = {} ---@type string[]
 
     for _, package_fpath in ipairs(package_fpaths) do
@@ -92,10 +75,7 @@ local function handle_delete(spec_names)
     vim.schedule(function()
         local ok, err = pcall(vim.pack.del, spec_names)
         if not ok then
-            vim.notify(
-                ("Failed to delete %s: %s"):format(table.concat(spec_names, ", "), err),
-                vim.log.levels.ERROR
-            )
+            vim.notify(("Failed to delete %s: %s"):format(table.concat(spec_names, ", "), err), vim.log.levels.ERROR)
         end
     end)
 end
@@ -107,10 +87,7 @@ local function handle_update(spec_names, opts)
     vim.schedule(function()
         local ok, err = pcall(vim.pack.update, spec_names, { force = opts.force or false })
         if not ok then
-            vim.notify(
-                ("Failed to update %s: %s"):format(table.concat(spec_names, ", "), err),
-                vim.log.levels.ERROR
-            )
+            vim.notify(("Failed to update %s: %s"):format(table.concat(spec_names, ", "), err), vim.log.levels.ERROR)
         end
     end)
 end
@@ -144,10 +121,7 @@ local function handle_build(spec, path)
         local cmd = vim.split(spec.data.build, " ")
         local response = vim.system(cmd, { cwd = path }):wait()
         vim.notify(
-            ("Build %s for %s"):format(
-                response.code ~= 0 and "failed" or "successful",
-                package_name
-            ),
+            ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
             response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
         )
     end)
@@ -171,10 +145,7 @@ local function handle_load(pack)
     end)
 
     if not ok then
-        vim.notify(
-            ("Load failed for %s: %s"):format(name, err),
-            vim.log.levels.ERROR
-        )
+        vim.notify(("Load failed for %s: %s"):format(name, err), vim.log.levels.ERROR)
         return false, err
     end
 
