@@ -193,7 +193,7 @@ local function get_value(name, key, level)
 
     if level == 1 then
         local pack_value = pack[key]
-        local n_pack_value n_pack[key]
+        local n_pack_value = n_pack[key]
     end
 
     return pack_value, n_pack_value
@@ -238,11 +238,12 @@ local function format_table(name, lines, tbl_order, indent, max_length, num_tabl
         return lines
     end
 
-    for _, key in tbl_order do
-        local s_value = get_value(name, key, tbl_order.level)
+    for _, key in tbl_order.order do
+        local p_value, n_value = get_value(tbl_order.name, key, tbl_order.level)
+        local f_value = format_table_value(p_value)
+        table.insert(lines, f_value)
     end
     
-
     return lines
 end
 
@@ -294,9 +295,9 @@ function Dashboard:display_pack_comparison(pack_name)
     local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)" }
     local top_spec = { 
         name = pack_name, 
-        order = {"name", "src", "active", "installed", "loaded", "version", "stage", "status"}, 
+        order = {"name", "src", "active", "installed", "loaded", "version", "status"}, 
         level = 1 
-    hhhhhhhhhhhhhhhhhkmmmmmmmmmmmmmmmmmmmmmmmmnmxlk;;;;;;j}
+    }
     content_lines = vim.list_extend(content_lines, format_table(pack_name, content_lines, top_spec, 0, 8, 1))
     for _, content_text in ipairs(content_lines) do
         local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
