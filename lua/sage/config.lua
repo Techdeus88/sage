@@ -51,10 +51,10 @@ M.opts = { ---@class Sage.Config.Opts
 }
 
 M.stages = {
-    NOW = "now"
-    LATER = "later"
-    LAZY = "lazy"
-    DISABLED = "disabled"
+    NOW = "now",
+    LATER = "later",
+    LAZY = "lazy",
+    DISABLED = "disabled",
 }
 
 M.specs = nil -- Will hold normalized specs after setup()
