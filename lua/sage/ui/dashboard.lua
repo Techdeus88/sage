@@ -1268,8 +1268,8 @@ function Dashboard:listen()
     end)
 
     register("pack:all_created", function()
+        self:sync_all_packs()
         vim.schedule(function()
-            self:sync_all_packs()
             self:resort_rows()
             self:render_footer()
             self:focus_content_window()
@@ -1573,9 +1573,7 @@ function Dashboard:init(container, elements, icons, opts)
     self.manager = self.container:resolve("manager")
     self.utils = self.container:resolve("utils")
 
-    self:listen()
     self:setup_debounced_footer()
-    self:sync_all_packs()
 
     -- ========================================================================
     -- BASE UI HIGHLIGHTS

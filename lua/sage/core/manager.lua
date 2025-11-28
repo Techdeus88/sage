@@ -1,5 +1,5 @@
 -- ============================================================================
--- SAGE PACK MANAGER (FIXED - Drop-in Ready)
+-- SAGE PACK MANAGER (PRODUCTION READY)
 -- ============================================================================
 local Manager = {}
 Manager.__index = Manager
@@ -15,32 +15,23 @@ function Manager.new(container, opts)
     self.loader = nil
 
     self.packs = {}
-    self.install_times = {}
-
-    -- Track installation state
-    self.installation_complete = false
-    self.installation_success = false
-    self.installation_result = nil
 
     return self
 end
 
 -- ============================================================================
--- Load Pack Specs (Now uses pre-normalized specs from config)
+-- Load Pack Specs
 -- ============================================================================
 function Manager:load_specs()
-    local Utils = self.utils
     local config = require("sage.config")
-
-    -- Specs are already loaded and normalized by config.setup()
     local all_specs = config.get_all_specs()
 
     if #all_specs == 0 then
-        Utils.safe_notify("No pack specs found", vim.log.levels.INFO)
+        self.utils.safe_notify("No pack specs found", vim.log.levels.INFO)
         return {}
     end
 
-    Utils.safe_notify(string.format("Using %d pre-normalized specs from config", #all_specs), vim.log.levels.DEBUG)
+    self.utils.safe_notify(string.format("Loaded %d pack specs from config", #all_specs), vim.log.levels.DEBUG)
 
     return all_specs
 end
@@ -55,6 +46,7 @@ local function should_show_dashboard(all_specs, opts)
                 return true
             end
         end
+        return false
     elseif opts.dashboard == "simple" then
         return true
     end
@@ -67,10 +59,10 @@ end
 -- ============================================================================
 function Manager:create_pack(spec)
     local pack = self.container:resolve("pack")
-
     local Pack = pack.new(spec)
 
-    -- ✅ CRITICAL: Mark as NOT installed yet
+    self:log_debug(string.format("Pack %s is created", Pack.name))
+
     Pack.installed = false
     Pack.loaded = false
 
@@ -85,33 +77,21 @@ function Manager:get_pack(name)
     return self.packs[name]
 end
 
-function Manager:update_pack(name, updated_pack)
-    local pack = self.packs[name]
-    if pack then
-        self.packs[name] = updated_pack
-        updated_pack:set_status("updated")
-    end
-    return self.packs[name]
-end
-
 -- ============================================================================
--- MANAGER: Installation + Stage Classification
+-- Installation + Stage Classification
 -- ============================================================================
 function Manager:install_and_classify_batch(packs)
     local sorted = self.utils.sort_packs(packs)
 
-    -- 1. Classify packs by stage BEFORE installation
     local by_stage = {
         now = sorted["now"] or {},
-        later = sorted["later"] or {},
         lazy = sorted["lazy"] or {},
+        later = sorted["later"] or {},
         disabled = sorted["disabled"] or {},
     }
 
-    -- 2. Install ALL packs (stage doesn't affect installation)
     local all_packs = vim.iter(vim.tbl_values(by_stage)):flatten():totable()
 
-    -- 3. Install, then load by stage
     self:install_batch(all_packs, function(success)
         if success then
             self:initiate_stage_loading(by_stage)
@@ -129,11 +109,10 @@ function Manager:install_batch(packs, on_complete)
         return
     end
 
-    -- Track completion
     local completed_count = 0
     local total_count = #packs
 
-    -- Emit install start events
+    -- Mark all packs as installing and emit start events
     for _, pack in ipairs(packs) do
         pack.times = pack.times or {}
         pack.times.install_start = vim.loop.hrtime()
@@ -150,35 +129,32 @@ function Manager:install_batch(packs, on_complete)
         end)
     end
 
-    -- Build specs array for vim.pack.add
+    -- Build specs for vim.pack.add
     local install_specs = vim.tbl_map(function(p)
         return p.specs.normalize
     end, packs)
 
-    -- Call vim.pack.add with load callback
+    -- Install with callback
     vim.pack.add(install_specs, {
         confirm = self.opts.add_opts.confirm,
         load = function(pack_info)
-            -- pack_info is a table with: { spec = <table>, path = <string|nil> }
             local spec = pack_info.spec
             local path = pack_info.path
-
-            -- Find the corresponding pack object
             local pack = self.packs[spec.name]
 
             if not pack then
                 return
             end
 
-            -- Calculate install time
+            -- Calculate install duration
             local install_ms = 0
             if pack.times.install_start then
                 install_ms = (vim.loop.hrtime() - pack.times.install_start) / 1e6
                 pack.times.install_duration = string.format("%.2f", install_ms)
             end
 
-            -- Handle success/failure
             if path then
+                -- Success
                 pack.installed = true
                 pack:set_path(path)
                 pack:set_status("installed")
@@ -194,6 +170,7 @@ function Manager:install_batch(packs, on_complete)
                     })
                 end)
             else
+                -- Failure
                 pack.installed = false
                 pack:set_status("failed")
                 pack.error = "Installation failed"
@@ -227,11 +204,13 @@ function Manager:install_batch(packs, on_complete)
     })
 end
 
+-- ============================================================================
+-- Stage Loading
+-- ============================================================================
 function Manager:initiate_stage_loading(by_stage)
     local Bus = self.bus
     local Loader = self.container:resolve("loader")
 
-    -- Define stage order
     local stages = {
         { name = "now", packs = by_stage.now },
         { name = "lazy", packs = by_stage.lazy },
@@ -239,7 +218,6 @@ function Manager:initiate_stage_loading(by_stage)
         { name = "disabled", packs = by_stage.disabled },
     }
 
-    -- Process stages sequentially
     local function process_next_stage(index)
         if index > #stages then
             vim.schedule(function()
@@ -254,19 +232,18 @@ function Manager:initiate_stage_loading(by_stage)
         end)
     end
 
-    -- Start with first stage
     process_next_stage(1)
 end
 
 -- ============================================================================
--- Create all packs from specs
+-- Create All Packs
 -- ============================================================================
 function Manager:create_all_packs(specs)
-    local Utils = self.utils
     local Bus = self.bus
-    local delay = 75
+    local delay = self.opts.render_delay or 50
+
     if #specs == 0 then
-        Utils.safe_notify("No pack specs to create", vim.log.levels.INFO)
+        self.utils.safe_notify("No pack specs to create", vim.log.levels.INFO)
         return {}
     end
 
@@ -281,7 +258,7 @@ function Manager:create_all_packs(specs)
         local name = pack.name
 
         if seen_names[name] then
-            Utils.safe_notify(string.format("Duplicate pack '%s' found (skipping)", name), vim.log.levels.WARN)
+            self.utils.safe_notify(string.format("Duplicate pack '%s' found (skipping)", name), vim.log.levels.WARN)
             goto continue
         end
 
@@ -294,13 +271,18 @@ function Manager:create_all_packs(specs)
         self.packs[name] = pack
         table.insert(packs, pack)
 
-        self.utils.emit_delayed("pack:created", {
-            name = name,
-            stage = pack:get_stage(),
-            status = "created",
-            message = "Pack created",
-            pack = pack,
-        }, delay * i)
+        -- Stagger event emissions for visual feedback
+        vim.defer_fn(function()
+            vim.schedule(function()
+                Bus.emit("pack:created", {
+                    name = name,
+                    stage = pack:get_stage(),
+                    status = "created",
+                    message = "Pack created",
+                    pack = pack,
+                })
+            end)
+        end, i * delay)
 
         ::continue::
     end
@@ -318,48 +300,51 @@ function Manager:create_all_packs(specs)
     return packs
 end
 
+function Manager:log_debug(message)
+    local logger = self.container:resolve("logger")
+    logger:debug("Manager", message)
+end
 -- ============================================================================
--- Main Entry Point: run_packs method
+-- Main Entry Point
 -- ============================================================================
 function Manager:run_packs()
-    local Utils = self.utils
     local Dashboard = self.container:resolve("dashboard")
 
-    -- Load pre-normalized specs from config
     local all_specs = self:load_specs()
+    self:log_debug(string.format("%d Specs loaded", #all_specs))
 
     if #all_specs == 0 then
-        Utils.safe_notify("No pack specs found, nothing to do", vim.log.levels.INFO)
+        self.utils.safe_notify("No pack specs found, nothing to do", vim.log.levels.INFO)
         return {}
     end
 
-    Utils.safe_notify(string.format("Processing %d pre-normalized pack specs", #all_specs), vim.log.levels.INFO)
+    self.utils.safe_notify(string.format("Processing %d pack specs", #all_specs), vim.log.levels.INFO)
 
     local show_dashboard = should_show_dashboard(all_specs, self.opts)
 
     if show_dashboard then
         vim.defer_fn(function()
             Dashboard:open()
+            self:log_debug(string.format("Dashboard has been opened!"))
 
-            -- Focus the dashboard window after it opens
+            -- Auto-focus dashboard window
             vim.defer_fn(function()
-                local win = Dashboard.win or Dashboard:get_window("content")
+                local win = Dashboard.win
                 if win and vim.api.nvim_win_is_valid(win) then
                     vim.api.nvim_set_current_win(win)
                 end
-            end, 50) -- Small delay to ensure window is fully created
+            end, 50)
         end, 300)
     end
 
-    -- Create pack objects from specs
     local all_packs = self:create_all_packs(all_specs)
+    self:log_debug(("All %d packs has been created"):format(#all_packs))
 
     if #all_packs == 0 then
-        Utils.safe_notify("No packs created successfully", vim.log.levels.WARN)
+        self.utils.safe_notify("No packs created successfully", vim.log.levels.WARN)
         return {}
     end
 
-    -- Kick off install + staged loading (async, event-driven)
     self:install_and_classify_batch(all_packs)
 
     return all_packs
@@ -369,11 +354,10 @@ end
 -- Cleanup
 -- ============================================================================
 function Manager:cleanup()
-    local Utils = self.utils
     local Bus = self.bus
     local cleanup_start = vim.loop.hrtime()
 
-    Utils.safe_notify("Starting manager cleanup...", vim.log.levels.DEBUG)
+    self.utils.safe_notify("Starting manager cleanup...", vim.log.levels.DEBUG)
 
     local Loader = self.container:resolve("loader")
 
@@ -391,7 +375,7 @@ function Manager:cleanup()
         end)
         if not ok then
             table.insert(stats.errors, string.format("Loader cleanup failed: %s", tostring(err)))
-            Utils.safe_notify(string.format("Failed to close loaders: %s", tostring(err)), vim.log.levels.WARN)
+            self.utils.safe_notify(string.format("Failed to close loaders: %s", tostring(err)), vim.log.levels.WARN)
         end
     end
 
@@ -402,7 +386,7 @@ function Manager:cleanup()
             end
 
             if pack.timers then
-                for timer_name, timer in pairs(pack.timers) do
+                for _, timer in pairs(pack.timers) do
                     if timer and type(timer) == "table" and timer.close then
                         if not timer:is_closing() then
                             pcall(function()
@@ -429,10 +413,6 @@ function Manager:cleanup()
     end
 
     self.packs = {}
-    self.install_times = {}
-    self.installation_complete = false
-    self.installation_success = false
-    self.installation_result = nil
 
     local cleanup_duration = (vim.loop.hrtime() - cleanup_start) / 1e6
 
@@ -445,7 +425,7 @@ function Manager:cleanup()
     end)
 
     if #stats.errors > 0 then
-        Utils.safe_notify(
+        self.utils.safe_notify(
             string.format(
                 "Manager cleanup completed with %d errors in %.2fms:\n%s",
                 #stats.errors,
@@ -455,7 +435,7 @@ function Manager:cleanup()
             vim.log.levels.WARN
         )
     else
-        Utils.safe_notify(
+        self.utils.safe_notify(
             string.format(
                 "Manager cleanup successful: %d packs, %d timers (%.2fms)",
                 stats.packs_cleaned,

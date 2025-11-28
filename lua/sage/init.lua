@@ -43,10 +43,7 @@ function M.setup(opts)
 
     if vim.g.sage_debug then
         vim.notify(
-            string.format(
-                "[Sage] Config ready with %d normalized specs",
-                config.spec_count or 0
-            ),
+            string.format("[Sage] Config ready with %d normalized specs", config.spec_count or 0),
             vim.log.levels.INFO
         )
     end
@@ -55,6 +52,12 @@ function M.setup(opts)
     -- Manager will use config.get_all_specs() to get pre-normalized specs
     local orchestrator = setup_orchestrator(config.opts)
 
+    orchestrator.logger:debug(
+        "Config",
+        string.format("The current opts %s", string.gsub(vim.inspect(config.opts), "\n", ""))
+    )
+    orchestrator.logger:debug("Config", string.format("Config normalized %d packages", #config.specs))
+
     -- ✅ STEP 3: Run packs safely
     pcall(function()
         orchestrator.manager:run_packs()
@@ -62,4 +65,3 @@ function M.setup(opts)
 end
 
 return M
-
