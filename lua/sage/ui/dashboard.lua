@@ -715,72 +715,80 @@ function Dashboard:add_pack(data)
     local status = data.status
     local message = data.message
 
-    local on = n_spec.data.on or {}
     local trigger_data = (n_spec.data.on and next(n_spec.data.on)) and n_spec.data.on or nil
 
-    -- If row already exists, merge new data in (don’t downgrade status)
-    local existing = self.rows_by_name[name]
-    if existing then
-        if status and status ~= "" then
-            -- Only overwrite if we’re moving “forward” in lifecycle
-            existing.status:update(status)
-            existing.status_two:update(status)
-        end
+    -- Either fetch an existing row or build a new one
+    local row = self.rows_by_name[name]
+    if not row then
+        row = {
+            name = name,
+            status_two = elem.StatusElement.new("status", status, "icon_text"),
+            status = elem.StatusElement.new("status", status, "icon"),
+            stage = elem.StageElement.new("stage", stage, "icon", {
+                stage = {
+                    now = icons.now,
+                    later = icons.later,
+                    lazy = icons.lazy,
+                    disabled = icons.disabled,
+                },
+            }),
+            stage_two = elem.StageElement.new("stage_two", stage, "icon_text", {
+                stage = {
+                    now = icons.now,
+                    later = icons.later,
+                    lazy = icons.lazy,
+                    disabled = icons.disabled,
+                },
+            }),
+            install_duration = elem.DurationElement.new("install_duration", Pack.times.install_duration),
+            config_duration = elem.DurationElement.new("config_duration", Pack.times.config_duration),
+            message = elem.TextElement.new("message", message or ""),
+            deps = elem.ListElement.new("deps", utils.get_dep_names(n_spec.data.depends or {})),
+            lazy = elem.LazyElement.new("lazy", trigger_data),
+            error = elem.TextElement.new("error", ""),
+        }
 
+        self.rows_by_name[name] = row
+        table.insert(self.rows, row)
+    else
+        -- Row already exists: just update the data, don't create duplicates
+        if status then
+            row.status:update(status)
+            row.status_two:update(status)
+        end
         if message and message ~= "" then
-            existing.message:update(message)
+            row.message:update(message)
         end
-
-        if trigger_data and existing.lazy then
-            existing.lazy:update(trigger_data)
+        if trigger_data and row.lazy then
+            row.lazy:update(trigger_data)
         end
-
-        if self.is_ready and self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf) then
-            self:update_line(existing)
-        end
-        return
     end
 
-    -- New row (track in memory even if UI doesn’t exist yet)
-    local row = {
-        name = name,
-        status_two = elem.StatusElement.new("status", status, "icon_text"),
-        status = elem.StatusElement.new("status", status, "icon"),
-        stage = elem.StageElement.new("stage", stage, "icon", {
-            stage = { now = icons.now, later = icons.later, lazy = icons.lazy, disabled = icons.disabled },
-        }),
-        stage_two = elem.StageElement.new("stage_two", stage, "icon_text", {
-            stage = { now = icons.now, later = icons.later, lazy = icons.lazy, disabled = icons.disabled },
-        }),
-        install_duration = elem.DurationElement.new("install_duration", Pack.times.install_duration),
-        config_duration = elem.DurationElement.new("config_duration", Pack.times.config_duration),
-        message = elem.TextElement.new("message", message),
-        deps = elem.ListElement.new("deps", utils.get_dep_names(n_spec.data.depends or {})),
-        lazy = elem.LazyElement.new("lazy", trigger_data),
-        error = elem.TextElement.new("error", ""),
-    }
-
-    self.rows_by_name[name] = row
-    table.insert(self.rows, row)
-
-    -- If UI isn’t ready yet, stop here – row will be rendered in :open()
+    -- If buffer / window isn't ready yet, just track the data.
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
-        self:debug_log(string.format("add_pack tracked (no UI yet) for %s", row.name))
+        if self.debug_log then
+            self:debug_log(string.format("Tracked pack %s (UI not ready)", name))
+        end
         return
     end
 
-    local index = #self.rows
-    local line = index - 1
+    -- Ensure the row has an extmark / line in the buffer
+    if not row.mark_id then
+        local index = #self.rows
+        local line = index - 1
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
-    self:_ensure_lines(line)
+        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+        self:_ensure_lines(line)
 
-    row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
-        right_gravity = true,
-    })
+        row.mark_id =
+            vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, { right_gravity = true })
 
-    self:debug_log(string.format("add_pack for %s row was created", row.name))
+        if self.debug_log then
+            self:debug_log(string.format("add_pack for %s row was created", row.name))
+        end
+    end
 
+    -- Finally render the current state of the row
     self:update_line(row)
 end
 
