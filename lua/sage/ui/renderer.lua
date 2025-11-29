@@ -26,6 +26,84 @@ function Renderer.new(bus, dm, render_queue)
     return self
 end
 
+
+
+-- registers all bus handlers
+function Renderer:register_listeners()
+    -- Pack creation - only happens once per pack
+    self.bus.on("pack:created", function(pack)
+        self.debug_log(string.format("--Caught-- created pack emit for %s", pack.name))
+        self:on_pack_created(pack)
+    end)
+
+    -- Install events
+    self.bus.on("pack:install:start", function(data)
+        self.debug_log(string.format("--Caught-- install:start pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    self.bus.on("pack:install:finish", function(data)
+        self.debug_log(string.format("--Caught-- install:finish pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    -- Load events
+    self.bus.on("pack:load:start", function(data)
+        self.debug_log(string.format("--Caught-- load:start pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    self.bus.on("pack:load:complete", function(data)
+        self.debug_log(string.format("--Caught-- load:complete pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    -- Config events
+    self.bus.on("pack:config:start", function(data)
+        self.debug_log(string.format("--Caught-- config:start pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    self.bus.on("pack:config:finish", function(data)
+        self.debug_log(string.format("--Caught-- config:finish pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    -- Status changes
+    self.bus.on("pack:status:change", function(data)
+        self.debug_log(string.format("--Caught-- status:change pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    -- Lazy packs
+    self.bus.on("pack:lazy", function(data)
+        self.debug_log(string.format("--Caught-- lazy pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    -- Failed packs
+    self.bus.on("pack:failed", function(data)
+        self.debug_log(string.format("--Caught-- failed pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
+
+    -- All packs created - trigger resort
+    self.bus.on("pack:all_created", function(data)
+        self.debug_log("--Caught-- all_created pack emit")
+
+        -- Wait for all renders to complete before resorting
+        local total_delay = self.created_count * 10 + 100
+
+        vim.defer_fn(function()
+            if self.dm.dashboard and self.dm.dashboard.is_valid then
+                self.dm.dashboard:resort_rows()
+                self.dm.dashboard:render_footer()
+                self.dm.dashboard:focus_content_window()
+            end
+        end, total_delay)
+    end)
+end
+
 -- ============================================================================
 -- Pack Creation Rendering (staggered, but safe for out-of-order events)
 -- ============================================================================
