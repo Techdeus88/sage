@@ -718,27 +718,31 @@ function Dashboard:add_pack(data)
     local on = n_spec.data.on or {}
     local trigger_data = (n_spec.data.on and next(n_spec.data.on)) and n_spec.data.on or nil
 
-    -- If row already exists, just update state
-    local row = self.rows_by_name[name]
-    if row then
-        row.status:update(status)
-        row.status_two:update(status)
-        row.message:update(message)
-        row.stage:update(stage)
-        row.stage_two:update(stage)
-        if trigger_data and row.lazy then
-            row.lazy:update(trigger_data)
+    -- If row already exists, merge new data in (don’t downgrade status)
+    local existing = self.rows_by_name[name]
+    if existing then
+        if status and status ~= "" then
+            -- Only overwrite if we’re moving “forward” in lifecycle
+            existing.status:update(status)
+            existing.status_two:update(status)
         end
 
-        -- Only render if buffers exist
-        if self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf) then
-            self:update_line(row)
+        if message and message ~= "" then
+            existing.message:update(message)
+        end
+
+        if trigger_data and existing.lazy then
+            existing.lazy:update(trigger_data)
+        end
+
+        if self.is_ready and self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf) then
+            self:update_line(existing)
         end
         return
     end
 
-    -- Create a new row (this works even before the UI is open)
-    row = {
+    -- New row (track in memory even if UI doesn’t exist yet)
+    local row = {
         name = name,
         status_two = elem.StatusElement.new("status", status, "icon_text"),
         status = elem.StatusElement.new("status", status, "icon"),
@@ -759,9 +763,8 @@ function Dashboard:add_pack(data)
     self.rows_by_name[name] = row
     table.insert(self.rows, row)
 
-    -- Only render to buffer if dashboard UI exists
+    -- If UI isn’t ready yet, stop here – row will be rendered in :open()
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
-        -- tracked in memory; will be rendered in :open()
         self:debug_log(string.format("add_pack tracked (no UI yet) for %s", row.name))
         return
     end
