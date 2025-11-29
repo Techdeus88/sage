@@ -722,7 +722,7 @@ function Dashboard:add_pack(data)
     if not row then
         row = {
             name = name,
-            status_two = elem.StatusElement.new("status", status, "icon_text"),
+            :tatus_two = elem.StatusElement.new("status", status, "icon_text"),
             status = elem.StatusElement.new("status", status, "icon"),
             stage = elem.StageElement.new("stage", stage, "icon", {
                 stage = {
