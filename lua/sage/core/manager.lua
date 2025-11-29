@@ -217,7 +217,7 @@ function Manager:initiate_stage_loading(by_stage)
 
     local function process_next_stage(index)
         if index > #stages then
-            Bus.emit("pack:all_stages_complete")
+            Bus.emit("pack:all_stages_complete", { stages = stages, packs = by_stage })
             return
         end
 

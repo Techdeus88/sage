@@ -32,7 +32,10 @@ Dashboard.tabs = {
     { id = "disabled", label = "Disabled" },
 }
 Dashboard.active_tab_index = 1
+
 Dashboard.rows = {}
+Dashboard.rows_by_name = {}
+
 Dashboard.header_buf = nil
 Dashboard.header_win = nil
 Dashboard.content_buf = nil
@@ -44,10 +47,12 @@ Dashboard.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
 Dashboard.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
 Dashboard.ns_ui = vim.api.nvim_create_namespace("SageUI")
 Dashboard.ns_footer = vim.api.nvim_create_namespace("SageDashboardFooter")
-Dashboard.rows_by_name = {}
 Dashboard.last_stats = nil
 Dashboard.header_height = 4
 Dashboard.footer_height = 6
+
+Dashboard.is_valid = false
+Dashboard.should_track = true
 
 local STATUS_ORDER = {
     not_loaded = 1,
@@ -184,13 +189,33 @@ function Dashboard:setup_close_keymaps()
     end
 end
 
-local function get_value(pack, key, level)
-    local n_pack = pack:get_native()
-    local pack_value
-    local n_pack_value
-    if level == 1 then
-        pack_value = pack[key]
+local function getTableValue(t, keys)
+    local current = t
+    for _, key in ipairs(keys) do
+        if type(current) == "table" and current[key] ~= nil then
+            current = current[key]
+        else
+            return nil -- Key not found or not a table
+        end
     end
+    return current
+end
+
+local function split_by_period(str)
+    local result = {}
+    -- Pattern matches any character (.), zero or more times (*), that is not (^) a period (.)
+    -- The non-greedy quantifier (?) ensures it matches the shortest possible sequence.
+    for part in str:gmatch("([^.]*)") do
+        if part ~= "" then -- Avoid adding empty strings if there are consecutive periods or a period at the start/end
+            table.insert(result, part)
+        end
+    end
+    return result
+end
+
+local function get_value(pack, key, which_kind)
+    local f_keys = split_by_period(key)
+    local pack_value = getTableValue(pack, f_keys)
     return pack_value
 end
 
@@ -224,8 +249,8 @@ local function format_table_value(key, val, val_type, indent, max_length)
     return f_value
 end
 
-local function format_table(name, pack, lines, tbl_order, indent, max_length, num_tables)
-    lines = lines or {}
+local function format_table(pack, tbl_order, indent, max_length, kind)
+    local lines = {}
     max_length = max_length or 10
     indent = indent or 0
 
@@ -233,10 +258,9 @@ local function format_table(name, pack, lines, tbl_order, indent, max_length, nu
         return lines
     end
 
-    for _, key in ipairs(tbl_order.order) do
-        local p_value = get_value(pack, key, tbl_order.level)
-        print(p_value)
-        local f_value = format_table_value(key, p_value, type(p_value), indent, max_length)
+    for _, ord in ipairs(tbl_order.order) do
+        local p_value = get_value(pack, ord.path, kind)
+        local f_value = format_table_value(ord.label, p_value, type(p_value), indent, max_length)
         table.insert(lines, f_value)
     end
 
@@ -246,6 +270,13 @@ end
 function Dashboard:display_pack_comparison(pack_name)
     local manager = self.container:resolve("manager")
     local utils = self.container:resolve("utils")
+    local width = vim.o.columns
+    local height = vim.o.lines
+    local win_height = math.floor(height * 0.80)
+    local win_width = math.floor(width * 0.60)
+    -- Calculate inner width (accounting for borders and padding)
+    local inner_width = win_width - 4 -- 2 for padding, 2 for borders
+
     local pack = manager.packs[pack_name]
 
     if not pack then
@@ -253,84 +284,117 @@ function Dashboard:display_pack_comparison(pack_name)
         return
     end
 
-    local width = vim.o.columns
-    local height = vim.o.lines
-    local win_height = math.floor(height * 0.80)
-    local win_width = math.floor(width * 0.60)
-    local row = math.floor((height - win_height) / 2)
-    local col = math.floor((width - win_width) / 2)
+    local _, n_pack = pcall(function()
+        return pack:get_native()
+    end)
 
-    -- Calculate inner width (accounting for borders and padding)
-    local inner_width = win_width - 4 -- 2 for padding, 2 for borders
+    local function get_pack_buf_win()
+        local row = math.floor((height - win_height) / 2)
+        local col = math.floor((width - win_width) / 2)
 
-    local lines = {}
-
-    -- Header box
-    local header_text = string.format("Pack: %s", pack_name)
-    local header_padding = math.floor((inner_width - #header_text - 2) / 2) -- -2 for border chars
-
-    table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗")
-    table.insert(
-        lines,
-        "║ "
-            .. string.rep(" ", header_padding)
-            .. header_text
-            .. string.rep(" ", inner_width - header_padding - #header_text - 3)
-            .. "║"
-    )
-    table.insert(lines, "╚" .. string.rep("═", inner_width - 2) .. "╝")
-    table.insert(lines, "")
-
-    -- Content
-    local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)" }
-    local top_spec = {
-        name = pack_name,
-        order = { "name", "src", "active", "installed", "loaded", "version", "status" },
-        level = 1,
-    }
-    content_lines = vim.list_extend(content_lines, format_table(pack_name, pack, content_lines, top_spec, 0, 8, 1))
-    for _, content_text in ipairs(content_lines) do
-        local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
-        table.insert(lines, string.rep(" ", content_padding) .. content_text)
+        local buf = vim.api.nvim_create_buf(false, true)
+        local win = vim.api.nvim_open_win(buf, true, {
+            relative = "editor",
+            width = win_width,
+            height = win_height,
+            row = row,
+            col = col,
+            style = "minimal",
+            border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
+            zindex = 100,
+        })
+        return buf, win
     end
 
-    table.insert(lines, string.rep("─", inner_width))
-    table.insert(lines, "")
+    local function get_pack_content(pack_name)
+        local lines = {}
 
-    -- Close instruction box
-    local close_text = "Press 'q' to close this buffer"
-    local close_padding = math.floor((inner_width - #close_text) / 2)
-    table.insert(lines, "┌" .. string.rep("─", inner_width - 2) .. "┐")
-    table.insert(
-        lines,
-        "│"
-            .. string.rep(" ", close_padding)
-            .. close_text
-            .. string.rep(" ", inner_width - close_padding - #close_text - 2)
-            .. "│"
-    )
-    table.insert(lines, "└" .. string.rep("─", inner_width - 2) .. "┘")
+        -- Header box
+        local header_text = string.format("Pack: %s", pack_name)
+        local header_padding = math.floor((inner_width - #header_text - 2) / 2) -- -2 for border chars
 
-    local buf = vim.api.nvim_create_buf(false, true)
-    local win = vim.api.nvim_open_win(buf, true, {
-        relative = "editor",
-        width = win_width,
-        height = win_height,
-        row = row,
-        col = col,
-        style = "minimal",
-        border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
-        zindex = 100,
-    })
+        table.insert(lines, "╔" .. string.rep("═", inner_width - 2) .. "╗")
+        table.insert(
+            lines,
+            "║ "
+                .. string.rep(" ", header_padding)
+                .. header_text
+                .. string.rep(" ", inner_width - header_padding - #header_text - 3)
+                .. "║"
+        )
+        table.insert(lines, "╚" .. string.rep("═", inner_width - 2) .. "╝")
+        table.insert(lines, "")
 
-    -- Add padding to each line
-    local padded_lines = {}
-    for _, line in ipairs(lines) do
-        table.insert(padded_lines, "  " .. line) -- Add consistent left padding
+        -- Content
+        local top_pack = {
+            name = pack_name,
+            order = {
+                { path = "name", label = "name" },
+                { path = "active", label = "active" },
+                { path = "installed", label = "installed" },
+                { path = "loaded", label = "loaded" },
+                { path = "path", label = "path" },
+                { path = "status", label = "status" },
+            },
+            kind = "pack",
+        }
+
+        local top_spec = {
+            name = pack_name,
+            order = {
+                { path = "specs.normalize.src", label = "src" },
+                { path = "specs.normalize.version", label = "version" },
+                { path = "specs.normalize.data.stage", label = "stage" },
+                { path = "specs.normalize.data.config", label = "config" },
+                { path = "specs.normalize.data.priority", label = "priority" },
+                { path = "specs.normalize.data.depends", label = "dependencies" },
+                { path = "specs.normalize.data.before", label = "Before" },
+                { path = "specs.normalize.data.after", label = "After" },
+            },
+            kind = "spec",
+        }
+
+        local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)", "" }
+
+        local pack_content_lines = format_table(pack, top_pack, 0, 8, "pack")
+        content_lines = vim.list_extend(content_lines, pack_content_lines)
+        local spec_content_lines = format_table(pack, top_spec, 0, 8, "spec")
+        content_lines = vim.list_extend(content_lines, spec_content_lines)
+
+        for _, content_text in ipairs(content_lines) do
+            local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
+            table.insert(lines, string.rep(" ", content_padding) .. content_text)
+        end
+
+        table.insert(lines, "")
+        -- Close instruction box
+        local close_text = "Press─'q-close'─'n-next'─'p-prev'"
+        local close_padding = math.floor((inner_width - #close_text) / 2)
+        table.insert(lines, string.rep("─", close_padding + 3) .. close_text .. string.rep("─", close_padding + 4))
+        -- table.insert(
+        --     lines,
+        --     "│"
+        --         .. string.rep(" ", close_padding)
+        --         .. close_text
+        --         .. string.rep(" ", inner_width - close_padding - #close_text - 2)
+        --         .. "│"
+        -- )
+        -- table.insert(lines, "└" .. string.rep("─", inner_width - 2) .. "┘")
+
+        -- Add padding to each line
+        local padded_lines = {}
+        for _, line in ipairs(lines) do
+            table.insert(padded_lines, "  " .. line) -- Add consistent left padding
+        end
+
+        return padded_lines
     end
+
+    local buf, win = get_pack_buf_win()
+    local lines = get_pack_content(pack_name)
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded_lines)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
     vim.api.nvim_set_option_value("filetype", "sage", { buf = buf })
     vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
@@ -639,6 +703,7 @@ function Dashboard:add_pack(data)
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
+
     local icons = self.icons
     local elem = self.elements
     local utils = self.utils
@@ -650,15 +715,19 @@ function Dashboard:add_pack(data)
     local status = data.status
     local message = data.message
 
+    local on = n_spec.data.on or {}
+
     if self.rows_by_name[name] then
+        logger:debug("Row already exists for " .. data.name .. ", skipping  add_pack")
         local existing_row = self.rows_by_name[name]
         existing_row.status:update(status)
         existing_row.message:update(message)
-        self:update_line(existing_row)
+        -- Only render if dashboard is open
+        if self.is_ready then
+            self:update_line(existing_row)
+        end
         return
     end
-
-    local on = n_spec.data.on or {}
 
     -- Debug: Check if 'on' has any data
     if not next(on) then
@@ -1169,10 +1238,6 @@ end
 -- Window Management
 -- ============================================================================
 function Dashboard:open()
-    if (not self.event_listeners or #self.event_listeners == 0) and self.bus then
-        -- self:listen()
-        -- self:sync_all_packs()
-    end
     if
         self.header_win
         and vim.api.nvim_win_is_valid(self.header_win)
@@ -1183,16 +1248,37 @@ function Dashboard:open()
         return
     end
 
+    self.is_ready = true
+    -- Create the UI first
     local ok, err = pcall(function()
         self:create_three_pane_layout()
-        self:render_header()
-        self:render_footer()
-        self:setup_keymaps()
     end)
 
     if not ok then
         vim.notify("Failed to open dashboard: " .. tostring(err), vim.log.levels.ERROR)
+        return
     end
+
+    -- NOW render all packs that were tracked before dashboard opened
+    for name, row in pairs(self.rows_by_name) do
+        -- Add the row to the buffer and create its extmark
+        local index = #self.rows + 1
+        local line = index - 1
+
+        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+        self:_ensure_lines(line)
+
+        row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
+            right_gravity = true,
+        })
+
+        self:update_line(row)
+        self:debug_log(string.format("Rendered tracked pack: %s", name))
+    end
+
+    self:render_header()
+    self:render_footer()
+    self:setup_keymaps()
 end
 
 function Dashboard:close()
@@ -1667,13 +1753,13 @@ function Dashboard:init(container, elements, icons, opts)
     -- ========================================================================
 
     vim.api.nvim_create_user_command("SageOpen", function()
-        local manager = require("sage.manager")
+        local manager = self.manager
         local dashboard = manager.container:resolve("dashboard")
         dashboard:open()
     end, { desc = "Open Sage dashboard" })
 
     vim.api.nvim_create_user_command("SageClose", function()
-        local manager = require("sage.manager")
+        local manager = self.manager
         local dashboard = manager.container:resolve("dashboard")
         dashboard:close()
     end, { desc = "Close Sage dashboard" })
@@ -1717,8 +1803,9 @@ function Dashboard:init(container, elements, icons, opts)
     end, { nargs = 1, desc = "Debug lazy element for a pack" })
 end
 
-function Dashboard:debug_log(msg)
-    self.logger:debug("Dashboard", msg)
+function Dashboard:debug_log(msg, sub_source)
+    sub_source = sub_source or ""
+    self.logger:debug("Dashboard-" .. sub_source, msg)
 end
 
 return Dashboard

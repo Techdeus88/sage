@@ -51,6 +51,7 @@ function Logger:log_event(level, source, msg)
     end
 
     self:render_logs()
+    return entry
 end
 
 function Logger:render_logs()
@@ -151,7 +152,8 @@ function Logger:trace(source, message)
 end
 
 function Logger:debug(source, message)
-    self:log_event(self.LEVELS.DEBUG, source, message)
+    local entry = self:log_event(self.LEVELS.DEBUG, source, message)
+    return entry
 end
 
 function Logger:info(source, message)
@@ -184,6 +186,18 @@ function Logger:echo_message(level, source, msg)
     local full_msg = string.format("[%s] %s: %s", self.LEVEL_NAMES[level], source, msg)
 
     vim.api.nvim_echo({ { full_msg, hl_group } }, true, {})
+end
+
+function Logger:log_table(src, tbl, log)
+    self:debug(src, string.format("  For log: %s has sub-logs below", log.index))
+    for key, val in pairs(tbl) do
+        if type(val) ~= "table" then
+            self:debug(src, string.format("    %s->%s to log: %s above", tostring(key), tostring(val), log.index))
+        else
+            self:debug(src, string.format("    %s-><nested table>", key))
+        end
+    end
+    self:debug(src, string.format("  End of logs for %s", log.index))
 end
 
 function Logger:get_logs(limit)

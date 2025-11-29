@@ -52,7 +52,11 @@ function M.setup(opts)
     -- Manager will use config.get_all_specs() to get pre-normalized specs
     local orchestrator = setup_orchestrator(config.opts)
 
-    orchestrator.logger:debug("Config", string.format("The current opts %s", string.gsub(orchestrator.utils.serialize(config.opts), "\n", "")))
+    local log = orchestrator.logger:debug(
+        "Config",
+        string.format("Opts used in this session: %d key-value pairs", vim.tbl_count(config.opts))
+    )
+    orchestrator.logger:log_table("Config", config.opts, log)
     orchestrator.logger:debug("Config", string.format("Config normalized %d packages", #config.specs))
 
     -- ✅ STEP 3: Run packs safely

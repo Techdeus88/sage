@@ -4,10 +4,10 @@ RenderQueue.__index = RenderQueue
 
 function RenderQueue.new()
     local self = setmetatable({}, RenderQueue)
-        self.queue = {}
-        self.scheduled = false
-        self.locked = false
-        return self
+    self.queue = {}
+    self.scheduled = false
+    self.locked = false
+    return self
 end
 
 function RenderQueue:push(fn, ...)

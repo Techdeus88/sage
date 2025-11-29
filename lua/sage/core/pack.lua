@@ -29,13 +29,12 @@ function Pack.new(spec)
         branches = {},
         path = "",
         rev = "",
-        tags = {}
+        tags = {},
     }
 
     self.specs = {}
     self.specs.normalize = spec
     self.specs.vim = v_spec
-
 
     return self
 end
@@ -111,16 +110,13 @@ function Pack:set_status(status)
 
     if curr_status ~= status then
         self.status = status
+
         if bus then
-            vim.schedule(function()
-                vim.defer_fn(function()
-                    bus.emit("pack:status:change", {
-                        name = pack_name,
-                        prev_status = curr_status,
-                        new_status = status,
-                    })
-                end, delay_status)
-            end)
+            bus.emit("pack:status:change", {
+                name = pack_name,
+                prev_status = curr_status,
+                status = status,
+            })
         end
         return true, self.status
     end
