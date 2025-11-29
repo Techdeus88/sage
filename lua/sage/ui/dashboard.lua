@@ -700,15 +700,15 @@ end
 -- Pack Management
 -- ============================================================================
 function Dashboard:add_pack(data)
-    if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
-        return
-    end
-
     local icons = self.icons
     local elem = self.elements
     local utils = self.utils
 
     local Pack = data.pack
+    if not Pack then
+        return
+    end
+
     local n_spec = Pack.specs.normalize
     local name = data.name
     local stage = data.stage
@@ -716,27 +716,29 @@ function Dashboard:add_pack(data)
     local message = data.message
 
     local on = n_spec.data.on or {}
+    local trigger_data = (n_spec.data.on and next(n_spec.data.on)) and n_spec.data.on or nil
 
-    if self.rows_by_name[name] then
-        logger:debug("Row already exists for " .. data.name .. ", skipping  add_pack")
-        local existing_row = self.rows_by_name[name]
-        existing_row.status:update(status)
-        existing_row.message:update(message)
-        -- Only render if dashboard is open
-        if self.is_ready then
-            self:update_line(existing_row)
+    -- If row already exists, just update state
+    local row = self.rows_by_name[name]
+    if row then
+        row.status:update(status)
+        row.status_two:update(status)
+        row.message:update(message)
+        row.stage:update(stage)
+        row.stage_two:update(stage)
+        if trigger_data and row.lazy then
+            row.lazy:update(trigger_data)
+        end
+
+        -- Only render if buffers exist
+        if self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf) then
+            self:update_line(row)
         end
         return
     end
 
-    -- Debug: Check if 'on' has any data
-    if not next(on) then
-        vim.notify(string.format("[DEBUG] Pack %s has no lazy trigger data", name), vim.log.levels.WARN)
-    end
-
-    local trigger_data = (n_spec.data.on and next(n_spec.data.on)) and n_spec.data.on or nil
-
-    local row = {
+    -- Create a new row (this works even before the UI is open)
+    row = {
         name = name,
         status_two = elem.StatusElement.new("status", status, "icon_text"),
         status = elem.StatusElement.new("status", status, "icon"),
@@ -746,7 +748,6 @@ function Dashboard:add_pack(data)
         stage_two = elem.StageElement.new("stage_two", stage, "icon_text", {
             stage = { now = icons.now, later = icons.later, lazy = icons.lazy, disabled = icons.disabled },
         }),
-        -- task_progress = elem.TaskProgressElement.new("task_progress", Pack:get_task_progress()),
         install_duration = elem.DurationElement.new("install_duration", Pack.times.install_duration),
         config_duration = elem.DurationElement.new("config_duration", Pack.times.config_duration),
         message = elem.TextElement.new("message", message),
@@ -757,6 +758,13 @@ function Dashboard:add_pack(data)
 
     self.rows_by_name[name] = row
     table.insert(self.rows, row)
+
+    -- Only render to buffer if dashboard UI exists
+    if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
+        -- tracked in memory; will be rendered in :open()
+        self:debug_log(string.format("add_pack tracked (no UI yet) for %s", row.name))
+        return
+    end
 
     local index = #self.rows
     local line = index - 1
@@ -1237,6 +1245,7 @@ end
 -- ============================================================================
 -- Window Management
 -- ============================================================================
+
 function Dashboard:open()
     if
         self.header_win
@@ -1249,7 +1258,6 @@ function Dashboard:open()
     end
 
     self.is_ready = true
-    -- Create the UI first
     local ok, err = pcall(function()
         self:create_three_pane_layout()
     end)
@@ -1261,7 +1269,6 @@ function Dashboard:open()
 
     -- NOW render all packs that were tracked before dashboard opened
     for name, row in pairs(self.rows_by_name) do
-        -- Add the row to the buffer and create its extmark
         local index = #self.rows + 1
         local line = index - 1
 

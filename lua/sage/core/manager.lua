@@ -318,10 +318,14 @@ function Manager:run_packs()
 
             -- Auto-focus dashboard window
             vim.defer_fn(function()
-                local win = Dashboard.win
+                local win = Dashboard.content_win
                 if win and vim.api.nvim_win_is_valid(win) then
                     vim.api.nvim_set_current_win(win)
                 end
+                  -- Re-sync from manager to be 100% sure we have all packs
+                Dashboard:sync_all_packs()
+                Dashboard:resort_rows()
+                Dashboard:refresh_for_tab()
             end, 50)
         end, 300)
     end
