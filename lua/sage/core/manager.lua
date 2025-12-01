@@ -85,7 +85,6 @@ end
 -- ============================================================================
 function Manager:install_and_classify_batch(packs)
     local sorted = self.utils.sort_packs(packs)
-
     local by_stage = {
         now = sorted["now"] or {},
         lazy = sorted["lazy"] or {},
@@ -123,8 +122,6 @@ function Manager:install_batch(packs, on_complete)
 
         Bus.emit("pack:install:start", {
             name = pack.name,
-            pack = pack,
-            stage = pack:get_stage(),
             status = pack:get_status(),
             message = "Installing " .. pack.name .. "...",
         })
@@ -135,6 +132,7 @@ function Manager:install_batch(packs, on_complete)
         return p.specs.normalize
     end, packs)
 
+    print('ready to install')
     -- Install with callback
     vim.pack.add(install_specs, {
         confirm = self.opts.add_opts.confirm,
@@ -162,8 +160,6 @@ function Manager:install_batch(packs, on_complete)
 
                 Bus.emit("pack:install:finish", {
                     name = pack.name,
-                    pack = pack,
-                    stage = pack:get_stage(),
                     status = pack:get_status(),
                     install_duration = install_ms,
                     message = "Installed " .. pack.name,
@@ -337,6 +333,7 @@ function Manager:run_packs()
         self.utils.safe_notify("No packs created successfully", vim.log.levels.WARN)
         return {}
     end
+
 
     self:install_and_classify_batch(all_packs)
 

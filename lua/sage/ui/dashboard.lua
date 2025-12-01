@@ -56,13 +56,13 @@ function Dashboard:create_three_pane_layout()
     self.content_buf = vim.api.nvim_create_buf(false, true)
     self.footer_buf = vim.api.nvim_create_buf(false, true)
 
-  -- Configure buffers to prevent premature closure
+    -- Configure buffers to prevent premature closure
     for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
         vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
         vim.api.nvim_set_option_value("filetype", "sage", { buf = buf })
         vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
         vim.api.nvim_set_option_value("indentexpr", "", { buf = buf })
-        vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })  -- Add this
+        vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf }) -- Add this
 
         pcall(vim.api.nvim_buf_set_var, buf, "miniindentscope_disable", true)
         pcall(vim.api.nvim_buf_set_var, buf, "indent_blankline_enabled", false)
@@ -184,17 +184,21 @@ function Dashboard:lock_windows()
 
     -- Periodic check to ensure all windows are still valid
     self.window_check_timer = vim.uv.new_timer()
-    self.window_check_timer:start(1000, 1000, vim.schedule_wrap(function()
-        -- Check if any window is missing
-        local header_valid = self.header_win and vim.api.nvim_win_is_valid(self.header_win)
-        local content_valid = self.content_win and vim.api.nvim_win_is_valid(self.content_win)
-        local footer_valid = self.footer_win and vim.api.nvim_win_is_valid(self.footer_win)
+    self.window_check_timer:start(
+        1000,
+        1000,
+        vim.schedule_wrap(function()
+            -- Check if any window is missing
+            local header_valid = self.header_win and vim.api.nvim_win_is_valid(self.header_win)
+            local content_valid = self.content_win and vim.api.nvim_win_is_valid(self.content_win)
+            local footer_valid = self.footer_win and vim.api.nvim_win_is_valid(self.footer_win)
 
-        if not (header_valid and content_valid and footer_valid) then
-            -- One or more windows are invalid, close everything
-            self:close()
-        end
-    end))
+            if not (header_valid and content_valid and footer_valid) then
+                -- One or more windows are invalid, close everything
+                self:close()
+            end
+        end)
+    )
 end
 
 function Dashboard:setup_close_keymaps()
@@ -568,78 +572,145 @@ function Dashboard:refresh_for_tab()
         return
     end
 
-    vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
-    vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
-
-    local filter = self.tabs[self.active_tab_index].id
+    ------------------------------------------------------------
+    -- 1. Resolve active filter
+    ------------------------------------------------------------
+    local filter_id = self.tabs[self.active_tab_index].id
 
     local function matches(row)
-        if filter == "all" then
+        local status = row.elements.status and row.elements.status.value
+        local stage  = row.elements.stage and row.elements.stage.value
+        local pack   = self.manager.packs[row.name]
+
+        if filter_id == "all" then
             return true
         end
-        if filter == "loaded" then
-            return row.status.value == "loaded" or row.status.value == "ready" or row.status.value == "configured"
-        end
-        if filter == "not_loaded" then
-            local pack = self.manager.packs[row.name]
 
-            return pack.loaded == false
-                or row.status.value == "installing"
-                or row.status.value == "installed"
-                or row.status.value == "created"
+        if filter_id == "loaded" then
+            return status == "loaded" or status == "ready" or status == "configured"
         end
-        if filter == "lazy" then
-            return row.stage.value == "lazy"
+
+        if filter_id == "not_loaded" then
+            return (pack and pack.loaded == false)
+                or status == "installing"
+                or status == "installed"
+                or status == "created"
         end
-        if filter == "failed" then
-            return row.status.value == "failed"
+
+        if filter_id == "lazy" then
+            return stage == "lazy"
         end
-        if filter == "now" then
-            return row.stage.value == "now"
+
+        if filter_id == "failed" then
+            return status == "failed"
         end
-        if filter == "later" then
-            return row.stage.value == "later"
+
+        if filter_id == "now" then
+            return stage == "now"
         end
-        if filter == "disabled" then
-            return row.stage.value == "disabled"
+
+        if filter_id == "later" then
+            return stage == "later"
         end
+
+        if filter_id == "disabled" then
+            return stage == "disabled"
+        end
+
         return false
     end
 
+    ------------------------------------------------------------
+    -- 2. Clear all content
+    ------------------------------------------------------------
+    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_rows, 0, -1)
+    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, 0, -1)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
+    vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
+
+    ------------------------------------------------------------
+    -- 3. Render only matching rows
+    ------------------------------------------------------------
     local line = 0
     local has_matches = false
 
     for _, row in ipairs(self.rows) do
-        if matches(row.elements) then
+        if matches(row) then
             has_matches = true
+            ----------------------------------------------------
+            -- Allocate a blank buffer line for this row
+            ----------------------------------------------------
+
+            vim.api.nvim_buf_set_lines(self.content_buf, line, line, false, { "" })
+
+
+            ----------------------------------------------------
+            -- Assign or move the row extmark (position only)
+            ----------------------------------------------------
+            row.mark_id = vim.api.nvim_buf_set_extmark(
+                self.content_buf,
+                Dashboard.ns_rows,
+                line,
+                0,
+                {
+                    id = row.mark_id,
+                    right_gravity = false,
+                }
+            )
+
+            ----------------------------------------------------
+            -- Render row virt_text (stable, correct)
+            ----------------------------------------------------
             self:render_row(row)
-            -- self:_ensure_lines(line)
 
-            -- row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
-            --     id = row.mark_id,
-            --     right_gravity = true,
-            -- })
-            --
-            self:update_row(row.name)
-            line = line + 1
+            ----------------------------------------------------
+            -- Expanded detail rows
+            ----------------------------------------------------
+            if row.expanded and row.details then
+                for _, detail_row in ipairs(row.details) do
+                    line = line + 1
+                    vim.api.nvim_buf_set_lines(self.content_buf, line, line, false, { "" })
 
-            if row.expanded and row.details_count then
-                self:expand_details(row)
-                line = line + row.details_count
+                    detail_row.mark_id = vim.api.nvim_buf_set_extmark(
+                        self.content_buf,
+                        Dashboard.ns_rows,
+                        line,
+                        0,
+                        {
+                            id = detail_row.mark_id,
+                            right_gravity = false,
+                        }
+                    )
+
+                    self:render_row(detail_row)
+                end
             end
+
+            line = line + 1
         end
     end
 
-    -- Show message if no packs match the filter
+    ------------------------------------------------------------
+    -- 4. Handle empty-filter result
+    ------------------------------------------------------------
     if not has_matches then
-        local no_packs_msg = string.format("No packs found for %s", filter)
-        vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, { "", "  " .. no_packs_msg, "" })
+        vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {
+            "",
+            "  No packs in category: " .. filter_id,
+            "",
+        })
     end
 
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
+    ------------------------------------------------------------
+    -- 5. Re-render header & footer (tab label etc)
+    ------------------------------------------------------------
     self:render_header()
     self:render_footer()
 end
+
+
+
 -- ============================================================================
 -- Footer Rendering
 -- ============================================================================
@@ -656,7 +727,6 @@ function Dashboard:get_stats()
     for _, row in ipairs(self.rows) do
         stats.total = stats.total + 1
         local status = row.elements.status.value
-        local stage = row.elements.stage.value
 
         if status == "failed" then
             stats.failed = stats.failed + 1
@@ -821,9 +891,9 @@ function Dashboard:_ensure_lines(to_line_inclusive)
             blanks[#blanks + 1] = ""
         end
 
-        vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf})
+        vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
         vim.api.nvim_buf_set_lines(self.content_buf, lc, lc, false, blanks)
-        vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf})
+        vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
     end
 end
 
@@ -845,6 +915,7 @@ function Dashboard:add_pack(data)
     local stage = data.stage
     local status = data.status
     local message = data.message
+    local path = data.path or ""
 
     local trigger_data = (n_spec.data.on and next(n_spec.data.on)) and n_spec.data.on or nil
 
@@ -860,19 +931,19 @@ function Dashboard:add_pack(data)
     local path_elem = elem.LinkElement.new("path", path)
     local error_elem = elem.ErrorElement.new("error", "")
     local row_elements = {
-                name = name,
-                status = status_elem,
-                status_two = status_elem_two,
-                stage = stage_elem,
-                stage_two = stage_elem_two,
-                install_duration = install_duration_elem,
-                config_duration = config_duration_elem,
-                message =  message_elem,
-                deps = deps_elem,
-                lazy = lazy_elem,
-                path = path_elem,
-                error = error_elem,
-            }
+        name = name,
+        status = status_elem,
+        status_two = status_elem_two,
+        stage = stage_elem,
+        stage_two = stage_elem_two,
+        install_duration = install_duration_elem,
+        config_duration = config_duration_elem,
+        message = message_elem,
+        deps = deps_elem,
+        lazy = lazy_elem,
+        path = path_elem,
+        error = error_elem,
+    }
 
     local row = self.rows_by_name[name]
     if not row then
@@ -880,23 +951,13 @@ function Dashboard:add_pack(data)
             name = name,
             elements = row_elements,
             mark_id = nil,
+            index = #self.rows + 1
         }
 
         self.rows_by_name[name] = row
         table.insert(self.rows, row)
     else
         self:update_row(row.name)
-        -- Row already exists: just update the data, don't create duplicates
-        -- if status then
-        --     row.elements.status:update(status)
-        --     row.elements.status_two:update(status)
-        -- end
-        -- if message and message ~= "" then
-        --     row.elements.message:update(message)
-        -- end
-        -- if trigger_data and row.elements.lazy then
-        --     row.elements.lazy:update(trigger_data)
-        -- end
     end
 
     -- If buffer / window isn't ready yet, just track the data.
@@ -912,35 +973,20 @@ end
 function Dashboard:render_row(row)
     -- 1. Ensure row position tracking exists (only if mark_id is nil)
     if not row.mark_id then
-        local index = #self.rows
+        local index = row.index
         local line = index - 1
         vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
         self:_ensure_lines(line)
 
-        row.mark_id = vim.api.nvim_buf_set_extmark(
-            self.content_buf,
-            Dashboard.ns_rows,
-            line,
-            0,
-            { right_gravity = true }
-        )
+        row.mark_id =
+            vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, { right_gravity = true })
     end
 
     -- 2. Get current line position
-    local current_line = vim.api.nvim_buf_get_extmark_by_id(
-        self.content_buf,
-        Dashboard.ns_rows,
-        row.mark_id,
-        {}
-    )[1]
+    local current_line = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})[1]
 
     -- 3. Clear old content
-    vim.api.nvim_buf_clear_namespace(
-        self.content_buf,
-        Dashboard.ns_content,
-        current_line,
-        current_line + 1
-    )
+    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, current_line, current_line + 1)
 
     -- 4. Build render order
     local elements = row.elements
@@ -989,16 +1035,10 @@ function Dashboard:render_row(row)
 
     -- 6. Set extmark
     if #virt_text > 0 then
-        vim.api.nvim_buf_set_extmark(
-            self.content_buf,
-            Dashboard.ns_content,
-            current_line,
-            0,
-            {
-                virt_text = virt_text,
-                virt_text_pos = "eol",
-            }
-        )
+        vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_content, current_line, 0, {
+            virt_text = virt_text,
+            virt_text_pos = "eol",
+        })
         self:debug_log(string.format("Rendered %d segments for %s at line %d", #virt_text, row.name, current_line))
     else
         self:debug_log(string.format("No content to render for %s", row.name))
@@ -1094,12 +1134,7 @@ end
 
 -- Clear all content rendering (keeps position tracking)
 function Dashboard:clear_content()
-    vim.api.nvim_buf_clear_namespace(
-        self.content_buf,
-        Dashboard.ns_content,
-        0,
-        -1
-    )
+    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, 0, -1)
 end
 
 -- Full re-render
@@ -1375,7 +1410,6 @@ function Dashboard:rebuild_display()
             right_gravity = true,
         })
 
-        -- FIX: Call render_row instead of update_row
         self:render_row(row)
     end
 
@@ -1444,9 +1478,9 @@ function Dashboard:collapse_details(row)
 
     local count = row.details_count or 0
     if count > 0 then
-        vim.api.nvim_set_option_value( "modifiable", true, { buf = self.content_buf})
+        vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
         vim.api.nvim_buf_set_lines(self.content_buf, l + 1, l + 1 + count, false, {})
-        vim.api.nvim_set_option_value( "modifiable", false, { buf = self.content_buf})
+        vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
     end
 
     row.expanded = false
@@ -1505,8 +1539,6 @@ end
 -- In dashboard.lua, replace the setup_keymaps function:
 -- In dashboard.lua, setup_keymaps function:
 function Dashboard:setup_keymaps()
-    local Utils = self.utils
-    local Manager = self.manager
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
@@ -1611,7 +1643,6 @@ function Dashboard:open()
     self:render_footer()
     self:setup_keymaps()
 end
-
 
 function Dashboard:close()
     self.is_open = false
@@ -1838,24 +1869,24 @@ function Dashboard:init(container, elements, icons, opts)
     vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
     vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
     vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
-    vim.api.nvim_set_hl(0, 'SageStatusCreated', { fg = '#7aa2f7', italic = true })
-    vim.api.nvim_set_hl(0, 'SageStatusLoaded', { fg = '#9ece6a', bold = true })
-    vim.api.nvim_set_hl(0, 'SageStatusFailed', { fg = '#f7768e', underline = true })
-    vim.api.nvim_set_hl(0, 'SageLazyBracket', { fg = '#bb9af7' })
-    vim.api.nvim_set_hl(0, 'SageLazyIcon', { fg = '#bb9af7' })
-    vim.api.nvim_set_hl(0, 'SageLazyLabel', { fg = '#bb9af7' })
-    vim.api.nvim_set_hl(0, 'SageLazyValue', { fg = '#bb9af7' })
-    vim.api.nvim_set_hl(0, 'SageLink', { fg = '#6495ed', underline = true })
+    vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
+    vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
+    vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
+    vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
     vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
     vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
-    vim.api.nvim_set_hl(0, 'SageStatusCreated', { fg = '#7aa2f7', italic = true })
-    vim.api.nvim_set_hl(0, 'SageStatusLoaded', { fg = '#9ece6a', bold = true })
-    vim.api.nvim_set_hl(0, 'SageStatusFailed', { fg = '#f7768e', underline = true })
-    vim.api.nvim_set_hl(0, 'SageLazyBracket', { fg = '#bb9af7' })
-    vim.api.nvim_set_hl(0, 'SageLazyIcon', { fg = '#bb9af7' })
-    vim.api.nvim_set_hl(0, 'SageLazyLabel', { fg = '#bb9af7' })
-    vim.api.nvim_set_hl(0, 'SageLazyValue', { fg = '#bb9af7' })
-    vim.api.nvim_set_hl(0, 'SageLink', { fg = '#6495ed', underline = true })
+    vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
+    vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
+    vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
+    vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
+    vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
 
     -- ========================================================================
     -- BUTTON HIGHLIGHTS (Interactive elements)
@@ -1867,7 +1898,7 @@ function Dashboard:init(container, elements, icons, opts)
     -- Lazy trigger buttons [󰘳 cmd: Telescope] [󰈔 ft: lua]
     vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
 
-        -- Dependency buttons [dep_name]
+    -- Dependency buttons [dep_name]
     vim.api.nvim_set_hl(0, "SageDependency", { link = "Underlined", default = true })
 
     -- ====
@@ -1909,14 +1940,14 @@ function Dashboard:init(container, elements, icons, opts)
             vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
             vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
             vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
-            vim.api.nvim_set_hl(0, 'SageStatusCreated', { fg = '#7aa2f7', italic = true })
-            vim.api.nvim_set_hl(0, 'SageStatusLoaded', { fg = '#9ece6a', bold = true })
-            vim.api.nvim_set_hl(0, 'SageStatusFailed', { fg = '#f7768e', underline = true })
-            vim.api.nvim_set_hl(0, 'SageLazyBracket', { fg = '#bb9af7' })
-            vim.api.nvim_set_hl(0, 'SageLazyIcon', { fg = '#bb9af7' })
-            vim.api.nvim_set_hl(0, 'SageLazyLabel', { fg = '#bb9af7' })
-            vim.api.nvim_set_hl(0, 'SageLazyValue', { fg = '#bb9af7' })
-            vim.api.nvim_set_hl(0, 'SageLink', { fg = '#6495ed', underline = true })
+            vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
+            vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
+            vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
+            vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
+            vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
+            vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
+            vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
+            vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
             vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
             vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
             vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })

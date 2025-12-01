@@ -108,8 +108,7 @@ end
 function U.sort_packs(packs)
     local by_stage = {}
     for _, pack in ipairs(packs) do
-        local stage = pack.specs.normalize.data.on.stage
-        -- Fix #1: ensure valid stage
+        local stage = pack.specs.normalize.data.stage
         local stage = type(stage) == "string" and stage or "default"
         by_stage[stage] = by_stage[stage] or {}
         table.insert(by_stage[stage], pack)
