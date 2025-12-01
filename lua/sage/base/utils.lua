@@ -197,6 +197,16 @@ function U.extract_name(input)
     return nil
 end
 
+function U.center_text(text, width)
+    local text_width = vim.fn.strdisplaywidth(text) -- Use display width for proper unicode handling
+    local padding = math.floor((width - text_width) / 2)
+    if padding < 0 then
+        padding = 0
+    end
+    local pad = string.rep(" ", padding)
+    return string.format("%s%s%s", pad, text, pad)
+end
+
 function U.get_lua_files_recursive_opts(directory, opts)
     opts = opts or {}
     local exclude_dirs = opts.exclude_dirs or {}
