@@ -59,7 +59,7 @@ function Element:mark_clean()
     self.dirty = false
 end
 
--- Render Element
+-- Render Element with highlight
 function Element:render_with_hl()
     local text = self:render()
     return {
@@ -114,7 +114,6 @@ LinkElement.__index = LinkElement
 function LinkElement.new(name, path)
     local self = Element.new(name, path)
     self.hl_group = "SageLink"
-
     return setmetatable(self, LinkElement)
 end
 
@@ -158,10 +157,10 @@ LazyElement.__index = LazyElement
 
 -- Icon mapping for different trigger types
 local TRIGGER_ICONS = {
-    events = icons.event or "󰃆",
-    fts = icons.filetype or "󰈔",
-    cmds = icons.command or "",
-    keys = icons.keymap or "󰌌",
+    events = icons.event or "📅",
+    fts = icons.filetype or "📄",
+    cmds = icons.command or "⚡",
+    keys = icons.keymap or "🔑",
 }
 
 function LazyElement.new(name, trigger_data)
@@ -171,12 +170,34 @@ end
 
 function LazyElement:render_with_hl()
     if not self.visible or not self.value or not next(self.value) then
-        return { { text = "", hl_group = self.hl_group } }
+        return {{ text = "", hl_group = self.hl_group }}
     end
 
     local trigger_type, trigger_values = self:_parse(self.value)
 
-    local icon, type_label, value_str = self:render(trigger_type, trigger_values)
+    if trigger_type == "none" or #trigger_values == 0 then
+        return {{ text = "", hl_group = self.hl_group }}
+    end
+
+    local icon = TRIGGER_ICONS[trigger_type] or ""
+    local type_label = trigger_type == "fts" and "ft" or trigger_type == "cmds" and "cmd" or trigger_type
+
+    -- Truncate if too many values
+    local max_display = 3
+    local display_values = {}
+    for i = 1, math.min(#trigger_values, max_display) do
+        table.insert(display_values, trigger_values[i])
+    end
+
+    local value_str = table.concat(display_values, ", ")
+    if #trigger_values > max_display then
+        value_str = value_str .. " +" .. (#trigger_values - max_display)
+    end
+
+    -- Limit length
+    if #value_str > 30 then
+        value_str = value_str:sub(1, 27) .. "..."
+    end
 
     -- Return array of segments with individual highlights
     return {
@@ -188,14 +209,13 @@ function LazyElement:render_with_hl()
     }
 end
 
-function LazyElement:render(trigger_type, trigger_values)
+function LazyElement:render()
     if not self.visible or not self.value or not next(self.value) then
         return ""
     end
 
-    -- local trigger_data = self.value
-    -- local trigger_type, trigger_values = self:_parse(trigger_data)
-    --
+    local trigger_type, trigger_values = self:_parse(self.value)
+
     if trigger_type == "none" or #trigger_values == 0 then
         return ""
     end
@@ -220,8 +240,7 @@ function LazyElement:render(trigger_type, trigger_values)
         value_str = value_str:sub(1, 27) .. "..."
     end
 
-    -- return string.format("[%s %s: %s]", icon, type_label, value_str)
-    return icon, type_label, value_str
+    return string.format("[%s %s: %s]", icon, type_label, value_str)
 end
 
 function LazyElement:render_detailed()
@@ -308,10 +327,12 @@ function LazyElement:get_info()
     local trigger_type, trigger_values = self:_parse(self.value)
     return {
         type = trigger_type,
-       values = trigger_values,
+        values = trigger_values,
         count = #trigger_values,
     }
 end
+
+-- ============================================================================
 
 local StatusElement = setmetatable({}, { __index = Element })
 StatusElement.__index = StatusElement
@@ -341,8 +362,8 @@ function StatusElement.new(name, initial_value, type)
     self.status_highlights = {
         created = "SageStatusCreated",
         configuring = "SageStatusCreated",
-        disabled = "SagetatusCreated",
-        idle = "SagetatusCreated",
+        disabled = "SageStatusCreated",
+        idle = "SageStatusCreated",
         installed = "SageStatusCreated",
         installing = "SageStatusCreated",
         lazy = "SageStatusCreated",
@@ -448,24 +469,14 @@ function DurationElement:set_precision(precision)
 end
 
 -- ============================================================================
--- sage/ui/core/list_element.lua
--- A robust ListElement for dashboard/core UI usage.
--- This module provides a safe API for storing, updating and rendering lists of strings.
--- It intentionally does NOT perform any buffer/window rendering — that belongs to the UI layer.
 
-local ListElement = {}
+local ListElement = setmetatable({}, { __index = Element })
 ListElement.__index = ListElement
 
--- Create a new ListElement
--- name : string identifier
--- values: table or nil (initial values)
--- opts: table, optional (allowed keys: separator, button_icon, transform)
 function ListElement.new(name, values, opts)
     opts = opts or {}
 
-    local self = setmetatable({}, ListElement)
-    self.name = name or "list"
-    -- normalize values to a flat array of strings
+    local self = Element.new(name, nil)
     self.values = {}
     if values then
         if type(values) == "table" then
@@ -478,14 +489,12 @@ function ListElement.new(name, values, opts)
     end
 
     self.separator = opts.separator or ", "
-    self.button_icon = opts.button_icon or " " -- default icon for button render
-    -- optional transform function applied to each value when rendering
-    self.transform = opts.transform -- function(val) -> string
+    self.button_icon = opts.button_icon or "📦 "
+    self.transform = opts.transform
 
-    return self
+    return setmetatable(self, ListElement)
 end
 
--- Return copy of values (to avoid external mutation)
 function ListElement:get_values()
     local out = {}
     for i, v in ipairs(self.values) do
@@ -494,7 +503,6 @@ function ListElement:get_values()
     return out
 end
 
--- Replace entire values array (defensive)
 function ListElement:set_values(new_values)
     self.values = {}
     if not new_values then
@@ -509,8 +517,6 @@ function ListElement:set_values(new_values)
     end
 end
 
--- Add a single value (idempotent optional)
--- opts: { unique = true } -> avoid duplicate entries
 function ListElement:add(value, opts)
     if value == nil then
         return
@@ -527,7 +533,6 @@ function ListElement:add(value, opts)
     table.insert(self.values, s)
 end
 
--- Remove a value (first match)
 function ListElement:remove(value)
     if value == nil then
         return
@@ -542,7 +547,6 @@ function ListElement:remove(value)
     return false
 end
 
--- Check membership
 function ListElement:has(value)
     if value == nil then
         return false
@@ -560,27 +564,26 @@ function ListElement:render()
     if not self.values or #self.values == 0 then
         return ""
     end
-
-    local rendered = {}
-    for _, dep in ipairs(self.values) do
-        local icon = " " -- or from your icons table
-        table.insert(rendered, string.format("[%s %s]", icon, dep))
-    end
-    return rendered
+    return table.concat(self.values, self.separator)
 end
 
--- Render as button-like segments (returns table of strings)
--- Each element => "[ ICON name ]" (no coloring / highlight)
--- Use UI layer to add highlights/extmarks for click behavior.
+function ListElement:render_with_hl()
+    local text = self:render()
+    return {
+        text = text,
+        hl_group = self.hl_group,
+        length = #text
+    }
+end
+
 function ListElement:render_buttons()
     local out = {}
     for _, d in ipairs(self.values or {}) do
-        local icon = " " -- or from your icons table
+        local icon = "📦 "
         table.insert(out, string.format("[%s%s]", icon, d))
     end
     return out
 end
--- Convenience: render buttons concatenated into one string (space-separated)
 
 function ListElement:render_buttons_joined(opts)
     local buttons = self:render_buttons(opts)
@@ -590,19 +593,12 @@ function ListElement:render_buttons_joined(opts)
     return table.concat(buttons, " ")
 end
 
--- Return count
 function ListElement:count()
     return #self.values
 end
 
--- Clear all entries
 function ListElement:clear()
     self.values = {}
-end
-
--- String metamethod (fallback)
-function ListElement:__tostring()
-    return self:render_join()
 end
 
 -- ============================================================================
@@ -636,51 +632,56 @@ end
 
 -- ============================================================================
 
-local ErrorElement = {}
+local ErrorElement = setmetatable({}, { __index = Element })
 ErrorElement.__index = ErrorElement
 
-function ErrorElement.new(msg, code)
-    local self = setmetatable({}, ErrorElement)
-
-    self.value = msg
-    self.code = code
-    self.icon = icons.status.failed
-
-    return self
+function ErrorElement.new(name, msg)
+    local self = Element.new(name, msg)
+    self.icon = icons.status and icons.status.failed or "✗"
+    return setmetatable(self, ErrorElement)
 end
 
 function ErrorElement:update(msg)
     if msg ~= self.value then
         self.value = msg
+        self.dirty = true
     end
 end
 
 function ErrorElement:render()
-    return self.icon .. " " .. self.value:upper()
+    return self.icon .. " " .. tostring(self.value):upper()
+end
+
+function ErrorElement:render_with_hl()
+    local text = self:render()
+    return {
+        text = text,
+        hl_group = "SageStatusFailed",
+        length = #text
+    }
 end
 
 -- ============================================================================
 
-local TaskProgressElement = {}
+local TaskProgressElement = setmetatable({}, { __index = Element })
 TaskProgressElement.__index = TaskProgressElement
 
 function TaskProgressElement.new(key, progress_data)
-    local self = setmetatable({}, TaskProgressElement)
+    local self = Element.new(key, progress_data or {
+        total = 0,
+        completed = 0,
+        required_completed = 0,
+        required_total = 0,
+        percentage = 0,
+    })
     self.key = key
-    self.value = progress_data
-        or {
-            total = 0,
-            completed = 0,
-            required_completed = 0,
-            required_total = 0,
-            percentage = 0,
-        }
-    return self
+    return setmetatable(self, TaskProgressElement)
 end
 
 function TaskProgressElement:update(progress_data)
     if progress_data then
         self.value = progress_data
+        self.dirty = true
     end
 end
 
@@ -708,6 +709,15 @@ function TaskProgressElement:render()
         suffix = suffix .. string.format(" %d task%s remaining", remaining, add_s)
     end
     return format_output .. suffix
+end
+
+function TaskProgressElement:render_with_hl()
+    local text = self:render()
+    return {
+        text = text,
+        hl_group = "SageTaskProgress",
+        length = #text
+    }
 end
 
 return {

@@ -906,27 +906,13 @@ function Dashboard:add_pack(data)
         end
         return
     end
-    --
-    -- Create position tracking extmark
-    -- if not row.mark_id then
-    --     local index = #self.rows
-    --     local line = index - 1
-    --     vim.api.nvim_set_option_value( "modifiable", true, { buf = self.content_buf })
-    --     self:_ensure_lines(line)
-    --
-    --     row.mark_id = vim.api.nvim_buf_set_extmark(
-    --         self.content_buf,
-    --         Dashboard.ns_rows,
-    --         line,
-    --         0,
-    --         { right_gravity = true }
-    --     )
-    -- end
     self:render_row(row)
 end
 
+
 function Dashboard:render_row(row)
     -- 1. Ensure row position tracking exists
+    -- Create position tracking extmark
     if not row.mark_id then
         local index = #self.rows
         local line = index - 1
@@ -959,28 +945,157 @@ function Dashboard:render_row(row)
         current_line + 1
     )
 
-    -- 4. Render new content
-    local virt_text = {}
-    for i, elem in ipairs(row.elements) do
-        local render_data = elem:render_with_hl()
-        table.insert(virt_text, { render_data.text, render_data.hl_group })
+    -- 4. Build ordered element list for rendering
+    local elements = row.elements
+    local render_order = {
+        elements.status,
+        elements.name and { text = elements.name, hl_group = "Normal" } or nil,
+        elements.stage,
+        elements.lazy,
+        elements.install_duration,
+        elements.config_duration,
+        elements.deps,
+        elements.message,
+        elements.error,
+    }
 
-        if i < #row.elements then
-            table.insert(virt_text, { "  ", "Normal" })
+    -- 5. Render each element with its highlight
+    local virt_text = {}
+
+    for _, elem in ipairs(render_order) do
+        if elem then
+            -- Handle plain text (like name string)
+            if type(elem) == "table" and elem.text then
+                table.insert(virt_text, { elem.text, elem.hl_group or "Normal" })
+                table.insert(virt_text, { " ", "Normal" })
+            -- Handle Element objects
+            elseif type(elem) == "table" and elem.render_with_hl then
+                local render_data = elem:render_with_hl()
+
+                -- Check if it returns multiple segments (like LazyElement)
+                if render_data[1] and render_data[1].text then
+                    for _, segment in ipairs(render_data) do
+                        table.insert(virt_text, { segment.text, segment.hl_group })
+                    end
+                -- Single segment
+                else
+                    if render_data.text and render_data.text ~= "" then
+                        table.insert(virt_text, { render_data.text, render_data.hl_group })
+                    end
+                end
+
+                table.insert(virt_text, { " ", "Normal" })
+            end
         end
     end
 
-    -- Content rendering extmark
-    vim.api.nvim_buf_set_extmark(
-        self.content_buf,
-        Dashboard.ns_content,
-        current_line,
-        0,
-        {
-            virt_text = virt_text,
-            virt_text_pos = "eol",
+    -- Remove trailing space
+    if #virt_text > 0 and virt_text[#virt_text].text == " " then
+        table.remove(virt_text)
+    end
+
+    -- 6. Content rendering extmark
+    if #virt_text > 0 then
+        vim.api.nvim_buf_set_extmark(
+            self.content_buf,
+            Dashboard.ns_content,
+            current_line,
+            0,
+            {
+                virt_text = virt_text,
+                virt_text_pos = "eol",
+            }
+        )
+    end
+
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
+end
+
+function Dashboard:update_row(row_name)
+    local row = self:find(row_name)
+    if not row then
+        self:debug_log(string.format("update_row: row not found for %s", row_name))
+        return
+    end
+
+    -- Check if any element is dirty
+    local needs_update = false
+    local elems = row.elements
+
+    for key, elem in pairs(elems) do
+        if type(elem) == "table" and elem.is_dirty and elem:is_dirty() then
+            needs_update = true
+            self:debug_log(string.format("Element %s is dirty for %s", key, row_name))
+            break
+        end
+    end
+
+    if needs_update then
+        self:debug_log(string.format("Re-rendering row %s", row_name))
+        self:render_row(row)
+
+        -- Mark elements clean
+        for _, elem in pairs(elems) do
+            if type(elem) == "table" and elem.mark_clean then
+                elem:mark_clean()
+            end
+        end
+    end
+end
+
+function Dashboard:find(name)
+    return self.rows_by_name[name]
+end
+
+-- Update the renderer helper to apply updates correctly
+function Dashboard:apply_update_to_row(row, data)
+    local elems = row.elements
+
+    if data.status then
+        if elems.status then
+            elems.status:update(data.status)
+        end
+        if elems.status_two then
+            elems.status_two:update(data.status)
+        end
+    end
+
+    if data.message and data.message ~= "" then
+        if elems.message then
+            elems.message:update(data.message)
+        end
+    elseif data.status then
+        -- derive a friendly message from status when none is provided
+        local status_messages = {
+            ready = "Loaded",
+            loaded = "Loaded",
+            installed = "Installed",
+            installing = "Installing…",
+            configuring = "Configuring…",
+            failed = "Failed",
+            disabled = "Disabled",
+            lazy = "Lazy",
         }
-    )
+        local msg = status_messages[data.status]
+        if msg and elems.message then
+            elems.message:update(msg)
+        end
+    end
+
+    if data.install_duration and elems.install_duration then
+        elems.install_duration:update(data.install_duration)
+    end
+
+    if data.config_duration and elems.config_duration then
+        elems.config_duration:update(data.config_duration)
+    end
+
+    if data.stage and elems.stage then
+        elems.stage:update(data.stage)
+        if elems.stage_two then
+            elems.stage_two:update(data.stage)
+        end
+    end
 end
 
 -- Clear all content rendering (keeps position tracking)
@@ -1004,30 +1119,6 @@ end
 -- ============================================================================
 -- Line Updating
 -- ============================================================================
-
-function Dashboard:update_row(row_name)
-    local row = self:find(row_name)
-    if not row then return end
-
-    -- Check if any element is dirty
-    local needs_update = false
-    for _, elem in ipairs(row.elements) do
-        if elem:is_dirty() then
-            needs_update = true
-            break
-        end
-    end
-
-    if needs_update then
-        self:render_row(row)
-
-        -- Mark elements clean
-        for _, elem in ipairs(row.elements) do
-            elem:mark_clean()
-        end
-    end
-end
-
 function Dashboard:update_line(row)
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return

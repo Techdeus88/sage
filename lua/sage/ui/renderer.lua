@@ -49,7 +49,7 @@ function Renderer:render_pack_created(data)
         return
     end
 
-    -- This creates/updates the row + extmark (Dashboard:add_pack must handle both)
+    -- This creates/updates the row + extmark
     self.dm.dashboard:add_pack(data)
 
     -- If any updates arrived before creation, apply the latest now
@@ -58,8 +58,13 @@ function Renderer:render_pack_created(data)
         self.pending_updates[data.name] = nil
         local row = self.dm.dashboard:find(data.name)
         if row then
-            self:_apply_update_to_row(row, pending)
-            self.dm.dashboard:update_row(row)
+            -- Use dashboard's apply function
+            if self.dm.dashboard.apply_update_to_row then
+                self.dm.dashboard:apply_update_to_row(row, pending)
+            else
+                self:_apply_update_to_row(row, pending)
+            end
+            self.dm.dashboard:update_row(data.name)
         end
     end
 
@@ -69,15 +74,14 @@ function Renderer:render_pack_created(data)
         self.debug_log(string.format("Tracked pack --%s-- (dashboard not open)", data.name))
     end
 end
-
--- ============================================================================
 -- Pack Update Rendering (staggered, with buffering)
 -- ============================================================================
 function Renderer:on_pack_updated(data)
     self.update_count = self.update_count + 1
+    local index = self.update_count
 
     -- Updates should feel quick but still visible
-    local delay = 40
+    local delay = index * 80
 
     self.queue:push(function()
         vim.defer_fn(function()
@@ -87,13 +91,21 @@ function Renderer:on_pack_updated(data)
 end
 
 function Renderer:_apply_update_to_row(row, data)
+    local elems = row.elements
+
     if data.status then
-        row.status:update(data.status)
-        row.status_two:update(data.status)
+        if elems.status then
+            elems.status:update(data.status)
+        end
+        if elems.status_two then
+            elems.status_two:update(data.status)
+        end
     end
 
     if data.message and data.message ~= "" then
-        row.message:update(data.message)
+        if elems.message then
+            elems.message:update(data.message)
+        end
     elseif data.status then
         -- derive a friendly message from status when none is provided
         local status_messages = {
@@ -107,17 +119,26 @@ function Renderer:_apply_update_to_row(row, data)
             lazy = "Lazy",
         }
         local msg = status_messages[data.status]
-        if msg then
-            row.message:update(msg)
+        if msg and elems.message then
+            elems.message:update(msg)
         end
     end
 
-    if data.install_duration then
-        row.install_duration:update(data.install_duration)
+    if data.install_duration and elems.install_duration then
+        elems.install_duration:update(data.install_duration)
     end
 
-    if data.config_duration then
-        row.config_duration:update(data.config_duration)
+    if data.config_duration and elems.config_duration then
+        elems.config_duration:update(data.config_duration)
+    end
+
+    if data.stage then
+        if elems.stage then
+            elems.stage:update(data.stage)
+        end
+        if elems.stage_two then
+            elems.stage_two:update(data.stage)
+        end
     end
 end
 
@@ -134,10 +155,16 @@ function Renderer:render_pack_updated(data)
         return
     end
 
-    self:_apply_update_to_row(row, data)
+    -- Use dashboard's apply function if available
+    if self.dm.dashboard.apply_update_to_row then
+        self.dm.dashboard:apply_update_to_row(row, data)
+    else
+        self:_apply_update_to_row(row, data)
+    end
 
-    self.dm.dashboard:update_line(row)
-    self.debug_log(string.format("Updated pack --%s-- to render", data.name))
+    -- Trigger re-render via update_row which checks dirty flags
+    self.dm.dashboard:update_row(data.name)
+    self.debug_log(string.format("Updated pack --%s--", data.name))
 end
 
 -- ============================================================================
