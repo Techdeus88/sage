@@ -323,7 +323,7 @@ function Manager:run_packs()
                     vim.api.nvim_set_current_win(win)
                 end
                   -- Re-sync from manager to be 100% sure we have all packs
-                Dashboard:sync_all_packs()
+                -- Dashboard:sync_all_packs()
                 Dashboard:resort_rows()
                 Dashboard:refresh_for_tab()
             end, 50)

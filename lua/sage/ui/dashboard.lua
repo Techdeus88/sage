@@ -909,17 +909,14 @@ function Dashboard:add_pack(data)
     self:render_row(row)
 end
 
-
 function Dashboard:render_row(row)
-    -- 1. Ensure row position tracking exists
-    -- Create position tracking extmark
+    -- 1. Ensure row position tracking exists (only if mark_id is nil)
     if not row.mark_id then
         local index = #self.rows
         local line = index - 1
         vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
         self:_ensure_lines(line)
 
-        -- Position tracker
         row.mark_id = vim.api.nvim_buf_set_extmark(
             self.content_buf,
             Dashboard.ns_rows,
@@ -929,7 +926,7 @@ function Dashboard:render_row(row)
         )
     end
 
-    -- 2. Get current line position (may have moved)
+    -- 2. Get current line position
     local current_line = vim.api.nvim_buf_get_extmark_by_id(
         self.content_buf,
         Dashboard.ns_rows,
@@ -937,7 +934,7 @@ function Dashboard:render_row(row)
         {}
     )[1]
 
-    -- 3. Clear old content rendering on this line
+    -- 3. Clear old content
     vim.api.nvim_buf_clear_namespace(
         self.content_buf,
         Dashboard.ns_content,
@@ -945,7 +942,7 @@ function Dashboard:render_row(row)
         current_line + 1
     )
 
-    -- 4. Build ordered element list for rendering
+    -- 4. Build render order
     local elements = row.elements
     local render_order = {
         elements.status,
@@ -959,25 +956,21 @@ function Dashboard:render_row(row)
         elements.error,
     }
 
-    -- 5. Render each element with its highlight
+    -- 5. Render
     local virt_text = {}
 
     for _, elem in ipairs(render_order) do
         if elem then
-            -- Handle plain text (like name string)
             if type(elem) == "table" and elem.text then
                 table.insert(virt_text, { elem.text, elem.hl_group or "Normal" })
                 table.insert(virt_text, { " ", "Normal" })
-            -- Handle Element objects
             elseif type(elem) == "table" and elem.render_with_hl then
                 local render_data = elem:render_with_hl()
 
-                -- Check if it returns multiple segments (like LazyElement)
                 if render_data[1] and render_data[1].text then
                     for _, segment in ipairs(render_data) do
                         table.insert(virt_text, { segment.text, segment.hl_group })
                     end
-                -- Single segment
                 else
                     if render_data.text and render_data.text ~= "" then
                         table.insert(virt_text, { render_data.text, render_data.hl_group })
@@ -990,11 +983,11 @@ function Dashboard:render_row(row)
     end
 
     -- Remove trailing space
-    if #virt_text > 0 and virt_text[#virt_text].text == " " then
+    if #virt_text > 0 and virt_text[#virt_text][1] == " " then
         table.remove(virt_text)
     end
 
-    -- 6. Content rendering extmark
+    -- 6. Set extmark
     if #virt_text > 0 then
         vim.api.nvim_buf_set_extmark(
             self.content_buf,
@@ -1006,9 +999,10 @@ function Dashboard:render_row(row)
                 virt_text_pos = "eol",
             }
         )
+        self:debug_log(string.format("Rendered %d segments for %s at line %d", #virt_text, row.name, current_line))
+    else
+        self:debug_log(string.format("No content to render for %s", row.name))
     end
-
-    vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
 end
 
 function Dashboard:update_row(row_name)
@@ -1381,8 +1375,11 @@ function Dashboard:rebuild_display()
             right_gravity = true,
         })
 
-        self:update_row(row.name)
+        -- FIX: Call render_row instead of update_row
+        self:render_row(row)
     end
+
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
 end
 
 -- ============================================================================
@@ -1595,6 +1592,7 @@ function Dashboard:open()
     end
 
     self.is_ready = true
+    self.is_open = true
     local ok, err = pcall(function()
         self:create_three_pane_layout()
     end)
@@ -1606,7 +1604,7 @@ function Dashboard:open()
 
     -- NOW render all packs that were tracked before dashboard opened
     for name, row in pairs(self.rows_by_name) do
-        self:render_row(row)
+        self:rebuild_display()
         -- local index = #self.rows + 1
         -- local line = index - 1
         --
