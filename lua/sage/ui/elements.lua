@@ -649,7 +649,7 @@ function ErrorElement:update(msg)
 end
 
 function ErrorElement:render()
-    return self.icon .. " " .. tostring(self.value):upper()
+    return self.value ~= "" and self.icon .. " " .. tostring(self.value):upper() or ""
 end
 
 function ErrorElement:render_with_hl()
