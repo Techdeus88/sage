@@ -1579,7 +1579,6 @@ end
 -- ============================================================================
 -- Window Management
 -- ============================================================================
-
 function Dashboard:open()
     if
         self.header_win
@@ -1593,36 +1592,26 @@ function Dashboard:open()
 
     self.is_ready = true
     self.is_open = true
+
     local ok, err = pcall(function()
         self:create_three_pane_layout()
     end)
 
     if not ok then
         vim.notify("Failed to open dashboard: " .. tostring(err), vim.log.levels.ERROR)
+        self.is_open = false
         return
     end
 
-    -- NOW render all packs that were tracked before dashboard opened
-    for name, row in pairs(self.rows_by_name) do
-        self:rebuild_display()
-        -- local index = #self.rows + 1
-        -- local line = index - 1
-        --
-        -- vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
-        -- self:_ensure_lines(line)
-        --
-        -- row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
-        --     right_gravity = true,
-        -- })
-        --
-        -- self:update_line(row)
-        self:debug_log(string.format("Rendered tracked pack: %s", name))
-    end
+    -- FIX: Call rebuild_display ONCE, not in a loop
+    self:debug_log(string.format("Rendering %d tracked packs", vim.tbl_count(self.rows_by_name)))
+    self:rebuild_display()
 
     self:render_header()
     self:render_footer()
     self:setup_keymaps()
 end
+
 
 function Dashboard:close()
     self.is_open = false
