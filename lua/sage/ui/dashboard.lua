@@ -21,43 +21,7 @@ end
 -- Dashboard UI Controller - Three Pane Layout
 -- ============================================================================
 local Dashboard = {}
-Dashboard.tabs = {
-    { id = "all", label = "All" },
-    { id = "loaded", label = "Loaded" },
-    { id = "not_loaded", label = "Not Loaded" },
-    { id = "lazy", label = "Lazy" },
-    { id = "now", label = "Now" },
-    { id = "later", label = "Later" },
-    { id = "failed", label = "Failed" },
-    { id = "disabled", label = "Disabled" },
-}
-Dashboard.active_tab_index = 1
-
-Dashboard.rows = {}
-Dashboard.rows_by_name = {}
-
-Dashboard.header_buf = nil
-Dashboard.header_win = nil
-Dashboard.content_buf = nil
-Dashboard.content_win = nil
-Dashboard.footer_buf = nil
-Dashboard.footer_win = nil
-Dashboard.autocmd_ids = {}
-Dashboard.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
-Dashboard.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
-Dashboard.ns_ui = vim.api.nvim_create_namespace("SageUI")
-Dashboard.ns_footer = vim.api.nvim_create_namespace("SageDashboardFooter")
-Dashboard.ns_background = vim.api.nvim_create_namespace("SageBackground") -- Priority 50
-Dashboard.ns_text = vim.api.nvim_create_namespace("SageText") -- Priority 100
-Dashboard.ns_buttons = vim.api.nvim_create_namespace("SageButtons") -- Priority 150
-Dashboard.ns_status = vim.api.nvim_create_namespace("SageStatus") -- Priority 200
-Dashboard.ns_overlay = vim.api.nvim_create_namespace("SageOverlay") -- Priority 250
-Dashboard.last_stats = nil
-Dashboard.header_height = 4
-Dashboard.footer_height = 6
-
-Dashboard.is_valid = false
-Dashboard.should_track = true
+Dashboard.__index = Dashboard
 
 local STATUS_ORDER = {
     not_loaded = 1,
@@ -92,11 +56,14 @@ function Dashboard:create_three_pane_layout()
     self.content_buf = vim.api.nvim_create_buf(false, true)
     self.footer_buf = vim.api.nvim_create_buf(false, true)
 
+  -- Configure buffers to prevent premature closure
     for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
         vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
         vim.api.nvim_set_option_value("filetype", "sage", { buf = buf })
         vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
         vim.api.nvim_set_option_value("indentexpr", "", { buf = buf })
+        vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })  -- Add this
+
         pcall(vim.api.nvim_buf_set_var, buf, "miniindentscope_disable", true)
         pcall(vim.api.nvim_buf_set_var, buf, "indent_blankline_enabled", false)
         pcall(vim.api.nvim_buf_set_var, buf, "snacks_indent_disable", true)
@@ -132,9 +99,14 @@ function Dashboard:create_three_pane_layout()
         border = { "├", "─", "┤", "│", "╰", "─", "╯", "│" },
     })
 
-    vim.api.nvim_set_option_value("winhighlight", "Normal:SageUIWindow", { win = self.header_win })
-    vim.api.nvim_set_option_value("winhighlight", "Normal:SageUIWindow", { win = self.content_win })
-    vim.api.nvim_set_option_value("winhighlight", "Normal:SageUIWindow", { win = self.footer_win })
+    for _, win in ipairs({ self.header_win, self.content_win, self.footer_win }) do
+        if win and vim.api.nvim_win_is_valid(win) then
+            -- These windows should not be easily closed
+            vim.api.nvim_set_option_value("winfixheight", true, { win = win })
+            vim.api.nvim_set_option_value("winfixwidth", true, { win = win })
+            vim.api.nvim_set_option_value("winhighlight", "Normal:SageUIWindow", { win = win })
+        end
+    end
 
     vim.api.nvim_set_option_value("cursorline", true, { win = self.content_win })
     vim.api.nvim_set_option_value("scrolloff", 3, { win = self.content_win })
@@ -145,7 +117,7 @@ function Dashboard:create_three_pane_layout()
     self:setup_close_keymaps()
 end
 
----@param window_name
+---@param window_name string
 function Dashboard:get_window(window_name)
     local name_map = { header = self.header_win, content = self.content_win, footer = self.footer_win }
     return name_map[window_name]
@@ -156,6 +128,14 @@ function Dashboard:lock_windows()
         return
     end
 
+    -- Store window IDs for validation
+    local dashboard_windows = {
+        header = self.header_win,
+        content = self.content_win,
+        footer = self.footer_win,
+    }
+
+    -- Prevent leaving dashboard windows
     for _, win in ipairs({ self.header_win, self.content_win, self.footer_win }) do
         if win and vim.api.nvim_win_is_valid(win) then
             local winleave_id = vim.api.nvim_create_autocmd("WinLeave", {
@@ -165,9 +145,14 @@ function Dashboard:lock_windows()
                         or current == self.content_win
                         or current == self.footer_win
 
-                    if not is_dashboard and self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
+                    if not is_dashboard then
                         vim.schedule(function()
-                            pcall(vim.api.nvim_set_current_win, self.content_win)
+                            if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
+                                pcall(vim.api.nvim_set_current_win, self.content_win)
+                            else
+                                -- Content window is gone, close everything
+                                self:close()
+                            end
                         end)
                     end
                 end,
@@ -175,6 +160,41 @@ function Dashboard:lock_windows()
             table.insert(self.autocmd_ids, winleave_id)
         end
     end
+
+    -- Guard against any window being closed individually
+    local close_guard_id = vim.api.nvim_create_autocmd("WinClosed", {
+        callback = function(args)
+            local closed_win = tonumber(args.match)
+
+            -- Check if any of our windows closed
+            for name, win_id in pairs(dashboard_windows) do
+                if closed_win == win_id then
+                    vim.schedule(function()
+                        -- One window closed, close them all
+                        if self.header_win or self.content_win or self.footer_win then
+                            self:close()
+                        end
+                    end)
+                    return
+                end
+            end
+        end,
+    })
+    table.insert(self.autocmd_ids, close_guard_id)
+
+    -- Periodic check to ensure all windows are still valid
+    self.window_check_timer = vim.uv.new_timer()
+    self.window_check_timer:start(1000, 1000, vim.schedule_wrap(function()
+        -- Check if any window is missing
+        local header_valid = self.header_win and vim.api.nvim_win_is_valid(self.header_win)
+        local content_valid = self.content_win and vim.api.nvim_win_is_valid(self.content_win)
+        local footer_valid = self.footer_win and vim.api.nvim_win_is_valid(self.footer_win)
+
+        if not (header_valid and content_valid and footer_valid) then
+            -- One or more windows are invalid, close everything
+            self:close()
+        end
+    end))
 end
 
 function Dashboard:setup_close_keymaps()
@@ -218,60 +238,6 @@ local function split_by_period(str)
     return result
 end
 
-local function get_value(pack, key, which_kind)
-    local f_keys = split_by_period(key)
-    local pack_value = getTableValue(pack, f_keys)
-    return pack_value
-end
-
-local function format_table_value(key, val, val_type, indent, max_length)
-    indent = string.rep(" ", indent or 1)
-
-    local tbl_key = tostring(key):upper()
-    local prefix = indent .. tbl_key .. " -> "
-    local f_value = nil
-
-    if val_type == "string" then
-        f_value = string.format("%s [%s]", prefix, val)
-    end
-    if val_type == "number" then
-        f_value = string.format("%s [%s]", prefix, string.format("%.0f", val))
-    end
-    if val_type == "boolean" then
-        if val then
-            f_value = string.format("%s [%s]", prefix, "true")
-        else
-            f_value = string.format("%s [%s]", prefix, "false")
-        end
-    end
-    if val_type == "function" then
-        f_value = string.format("%s [%s]", prefix, "<function>")
-    end
-    if val_type == "userdata" then
-        f_value = string.format("%s [%s]", prefix, "<userdata>")
-    end
-
-    return f_value
-end
-
-local function format_table(pack, tbl_order, indent, max_length, kind)
-    local lines = {}
-    max_length = max_length or 10
-    indent = indent or 0
-
-    if not tbl_order or indent > max_length then
-        return lines
-    end
-
-    for _, ord in ipairs(tbl_order.order) do
-        local p_value = get_value(pack, ord.path, kind)
-        local f_value = format_table_value(ord.label, p_value, type(p_value), indent, max_length)
-        table.insert(lines, f_value)
-    end
-
-    return lines
-end
-
 -- Compare a Sage pack to native vim.pack info (Neovim 0.12)
 function Dashboard:display_pack_comparison(pack_name)
     local manager = self.container:resolve("manager")
@@ -296,7 +262,6 @@ function Dashboard:display_pack_comparison(pack_name)
     if not ok_native then
         n_pack = nil
     end
-    print(vim.inspect(n_pack))
 
     -- Small helper: get nested value (uses your existing helpers)
     local function get_field(root, path)
@@ -455,6 +420,7 @@ function Dashboard:display_pack_comparison(pack_name)
         -- Core pack-level fields
         local core_fields = {
             { label = "name", sage = "name", native = "spec.name" },
+            { label = "enabled", sage = "enabled", native = nil },
             { label = "active", sage = "active", native = "active" },
             { label = "installed", sage = "installed", native = nil },
             { label = "loaded", sage = "loaded", native = nil },
@@ -473,11 +439,23 @@ function Dashboard:display_pack_comparison(pack_name)
             { label = "config", sage = "specs.normalize.data.config", native = "spec.data.config" },
             { label = "priority", sage = "specs.normalize.data.priority", native = "spec.data.priority" },
             { label = "depends", sage = "specs.normalize.data.depends", native = "spec.data.depends" },
-            { label = "before", sage = "specs.normalize.data.before", native = "spec.data.before" },
-            { label = "after", sage = "specs.normalize.data.after", native = "spec.data.after" },
+            { label = "init", sage = "specs.normalize.data.on.init", native = "spec.data.on.init" },
+            { label = "post", sage = "specs.normalize.data.on.post", native = "spec.data.on.post" },
+            { label = "before", sage = "specs.normalize.data.on.before", native = "spec.data.on.before" },
+            { label = "after", sage = "specs.normalize.data.on.after", native = "spec.data.on.after" },
         }
 
-        add_side_by_side_section(lines, "", spec_fields)
+        add_side_by_side_section(lines, "Lazy", spec_fields)
+
+        -- Spec-level fields (Sage normalize vs vim.pack.Spec)
+        local lazy_fields = {
+            { label = "Events ~Lazy~", sage = "specs.normalize.data.on.events", native = "spec.data.on.events" },
+            { label = "Cmds ~Lazy~", sage = "specs.normalize.data.on.cmds", native = "spec.data.on.cmds" },
+            { label = "Fts ~Lazy~", sage = "specs.normalize.data.on.fts", native = "spec.data.on.fts" },
+            { label = "Keys ~Lazy~", sage = "specs.normalize.data.on.keys", native = "spec.data.on.keys" },
+        }
+
+        add_side_by_side_section(lines, "", lazy_fields)
 
         -- Diff section (only mismatched fields where both sides exist)
         local all_for_diff = {}
@@ -485,6 +463,9 @@ function Dashboard:display_pack_comparison(pack_name)
             table.insert(all_for_diff, f)
         end
         for _, f in ipairs(spec_fields) do
+            table.insert(all_for_diff, f)
+        end
+        for _, f in ipairs(lazy_fields) do
             table.insert(all_for_diff, f)
         end
         local diff_lines = get_diff_lines(all_for_diff)
@@ -586,7 +567,6 @@ function Dashboard:refresh_for_tab()
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
     end
-    local Manager = self.manager
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
     vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
@@ -597,8 +577,8 @@ function Dashboard:refresh_for_tab()
         if filter == "all" then
             return true
         end
-        if filter == "loaded" or filter == "configured" or filter == "ready" then
-            return row.status.value == "loaded" or row.status.value == "ready"
+        if filter == "loaded" then
+            return row.status.value == "loaded" or row.status.value == "ready" or row.status.value == "configured"
         end
         if filter == "not_loaded" then
             local pack = self.manager.packs[row.name]
@@ -623,23 +603,24 @@ function Dashboard:refresh_for_tab()
         if filter == "disabled" then
             return row.stage.value == "disabled"
         end
-        return true
+        return false
     end
 
     local line = 0
     local has_matches = false
 
     for _, row in ipairs(self.rows) do
-        if matches(row) then
+        if matches(row.elements) then
             has_matches = true
-            self:_ensure_lines(line)
+            self:render_row(row)
+            -- self:_ensure_lines(line)
 
-            row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
-                id = row.mark_id,
-                right_gravity = true,
-            })
-
-            self:update_line(row)
+            -- row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
+            --     id = row.mark_id,
+            --     right_gravity = true,
+            -- })
+            --
+            self:update_row(row.name)
             line = line + 1
 
             if row.expanded and row.details_count then
@@ -674,19 +655,25 @@ function Dashboard:get_stats()
 
     for _, row in ipairs(self.rows) do
         stats.total = stats.total + 1
-        local status = row.status.value
-        local stage = row.stage.value
+        local status = row.elements.status.value
+        local stage = row.elements.stage.value
 
         if status == "failed" then
             stats.failed = stats.failed + 1
         elseif status == "loaded" or status == "configured" or status == "ready" then
             stats.loaded = stats.loaded + 1
-        elseif status == "lazy" or stage == "lazy" then
+        elseif status == "lazy" then
             stats.lazy = stats.lazy + 1
-        elseif status == "disabled" or stage == "disabled" then
+        elseif status == "disabled" then
             stats.disabled = stats.disabled + 1
             stats.not_loaded = stats.not_loaded + 1
-        elseif status == "installing" or status == "installed" or status == "created" then
+        elseif
+            status == "installing"
+            or status == "installed"
+            or status == "created"
+            or status == "idle"
+            or status == "configuring"
+        then
             stats.not_loaded = stats.not_loaded + 1
         end
     end
@@ -771,9 +758,33 @@ function Dashboard:render_footer()
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
 
     vim.api.nvim_buf_clear_namespace(self.footer_buf, Dashboard.ns_footer, 0, -1)
-    vim.api.nvim_buf_add_highlight(self.footer_buf, Dashboard.ns_footer, "SageFooterProgress", 1, 0, -1)
-    vim.api.nvim_buf_add_highlight(self.footer_buf, Dashboard.ns_footer, "SageFooterStats", 3, 0, -1)
-    vim.api.nvim_buf_add_highlight(self.footer_buf, Dashboard.ns_footer, "SageFooterHelp", 4, 0, -1)
+
+    -- Highlight line 1 (progress bar)
+    local line1_text = footer_lines[2]
+    if line1_text and #line1_text > 0 then
+        vim.api.nvim_buf_set_extmark(self.footer_buf, Dashboard.ns_footer, 1, 0, {
+            end_col = #line1_text,
+            hl_group = "SageFooterProgress",
+        })
+    end
+
+    -- Highlight line 3 (stats)
+    local line3_text = footer_lines[4]
+    if line3_text and #line3_text > 0 then
+        vim.api.nvim_buf_set_extmark(self.footer_buf, Dashboard.ns_footer, 3, 0, {
+            end_col = #line3_text,
+            hl_group = "SageFooterStats",
+        })
+    end
+
+    -- Highlight line 4 (help)
+    local line4_text = footer_lines[5]
+    if line4_text and #line4_text > 0 then
+        vim.api.nvim_buf_set_extmark(self.footer_buf, Dashboard.ns_footer, 4, 0, {
+            end_col = #line4_text,
+            hl_group = "SageFooterHelp",
+        })
+    end
 end
 
 function Dashboard:update_footer_if_changed()
@@ -782,7 +793,7 @@ function Dashboard:update_footer_if_changed()
 
     if self.last_stats ~= stats_str then
         self.last_stats = stats_str
-        vim.api.nvim_buf_set_option(self.footer_buf, "modifiable", true)
+        vim.api.nvim_set_option_value("modifiable", true, self.footer_buf)
         self:render_footer()
     end
 end
@@ -810,9 +821,9 @@ function Dashboard:_ensure_lines(to_line_inclusive)
             blanks[#blanks + 1] = ""
         end
 
-        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+        vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf})
         vim.api.nvim_buf_set_lines(self.content_buf, lc, lc, false, blanks)
-        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
+        vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf})
     end
 end
 
@@ -837,51 +848,55 @@ function Dashboard:add_pack(data)
 
     local trigger_data = (n_spec.data.on and next(n_spec.data.on)) and n_spec.data.on or nil
 
-    -- Either fetch an existing row or build a new one
+    local status_elem = elem.StatusElement.new("status", status, "icon")
+    local status_elem_two = elem.StatusElement.new("status", status, "icon_text")
+    local stage_elem = elem.StageElement.new("stage", stage, "icon")
+    local stage_elem_two = elem.StageElement.new("stage", stage, "icon_text")
+    local install_duration_elem = elem.DurationElement.new("install_duration", Pack.times.install_duration)
+    local config_duration_elem = elem.DurationElement.new("config_duration", Pack.times.config_duration)
+    local message_elem = elem.TextElement.new("message", message)
+    local deps_elem = elem.ListElement.new("deps", utils.get_dep_names(n_spec.data.depends or {}))
+    local lazy_elem = elem.LazyElement.new("lazy", trigger_data)
+    local path_elem = elem.LinkElement.new("path", path)
+    local error_elem = elem.ErrorElement.new("error", "")
+    local row_elements = {
+                name = name,
+                status = status_elem,
+                status_two = status_elem_two,
+                stage = stage_elem,
+                stage_two = stage_elem_two,
+                install_duration = install_duration_elem,
+                config_duration = config_duration_elem,
+                message =  message_elem,
+                deps = deps_elem,
+                lazy = lazy_elem,
+                path = path_elem,
+                error = error_elem,
+            }
+
     local row = self.rows_by_name[name]
     if not row then
         row = {
             name = name,
-            status_two = elem.StatusElement.new("status", status, "icon_text"),
-            status = elem.StatusElement.new("status", status, "icon"),
-            stage = elem.StageElement.new("stage", stage, "icon", {
-                stage = {
-                    now = icons.now,
-                    later = icons.later,
-                    lazy = icons.lazy,
-                    disabled = icons.disabled,
-                },
-            }),
-            stage_two = elem.StageElement.new("stage_two", stage, "icon_text", {
-                stage = {
-                    now = icons.now,
-                    later = icons.later,
-                    lazy = icons.lazy,
-                    disabled = icons.disabled,
-                },
-            }),
-            install_duration = elem.DurationElement.new("install_duration", Pack.times.install_duration),
-            config_duration = elem.DurationElement.new("config_duration", Pack.times.config_duration),
-            message = elem.TextElement.new("message", message or ""),
-            deps = elem.ListElement.new("deps", utils.get_dep_names(n_spec.data.depends or {})),
-            lazy = elem.LazyElement.new("lazy", trigger_data),
-            error = elem.TextElement.new("error", ""),
+            elements = row_elements,
+            mark_id = nil,
         }
 
         self.rows_by_name[name] = row
         table.insert(self.rows, row)
     else
+        self:update_row(row.name)
         -- Row already exists: just update the data, don't create duplicates
-        if status then
-            row.status:update(status)
-            row.status_two:update(status)
-        end
-        if message and message ~= "" then
-            row.message:update(message)
-        end
-        if trigger_data and row.lazy then
-            row.lazy:update(trigger_data)
-        end
+        -- if status then
+        --     row.elements.status:update(status)
+        --     row.elements.status_two:update(status)
+        -- end
+        -- if message and message ~= "" then
+        --     row.elements.message:update(message)
+        -- end
+        -- if trigger_data and row.elements.lazy then
+        --     row.elements.lazy:update(trigger_data)
+        -- end
     end
 
     -- If buffer / window isn't ready yet, just track the data.
@@ -891,30 +906,128 @@ function Dashboard:add_pack(data)
         end
         return
     end
+    --
+    -- Create position tracking extmark
+    -- if not row.mark_id then
+    --     local index = #self.rows
+    --     local line = index - 1
+    --     vim.api.nvim_set_option_value( "modifiable", true, { buf = self.content_buf })
+    --     self:_ensure_lines(line)
+    --
+    --     row.mark_id = vim.api.nvim_buf_set_extmark(
+    --         self.content_buf,
+    --         Dashboard.ns_rows,
+    --         line,
+    --         0,
+    --         { right_gravity = true }
+    --     )
+    -- end
+    self:render_row(row)
+end
 
-    -- Ensure the row has an extmark / line in the buffer
+function Dashboard:render_row(row)
+    -- 1. Ensure row position tracking exists
     if not row.mark_id then
         local index = #self.rows
         local line = index - 1
-
-        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+        vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
         self:_ensure_lines(line)
 
-        row.mark_id =
-            vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, { right_gravity = true })
+        -- Position tracker
+        row.mark_id = vim.api.nvim_buf_set_extmark(
+            self.content_buf,
+            Dashboard.ns_rows,
+            line,
+            0,
+            { right_gravity = true }
+        )
+    end
 
-        if self.debug_log then
-            self:debug_log(string.format("add_pack for %s row was created", row.name))
+    -- 2. Get current line position (may have moved)
+    local current_line = vim.api.nvim_buf_get_extmark_by_id(
+        self.content_buf,
+        Dashboard.ns_rows,
+        row.mark_id,
+        {}
+    )[1]
+
+    -- 3. Clear old content rendering on this line
+    vim.api.nvim_buf_clear_namespace(
+        self.content_buf,
+        Dashboard.ns_content,
+        current_line,
+        current_line + 1
+    )
+
+    -- 4. Render new content
+    local virt_text = {}
+    for i, elem in ipairs(row.elements) do
+        local render_data = elem:render_with_hl()
+        table.insert(virt_text, { render_data.text, render_data.hl_group })
+
+        if i < #row.elements then
+            table.insert(virt_text, { "  ", "Normal" })
         end
     end
 
-    -- Finally render the current state of the row
-    self:update_line(row)
+    -- Content rendering extmark
+    vim.api.nvim_buf_set_extmark(
+        self.content_buf,
+        Dashboard.ns_content,
+        current_line,
+        0,
+        {
+            virt_text = virt_text,
+            virt_text_pos = "eol",
+        }
+    )
+end
+
+-- Clear all content rendering (keeps position tracking)
+function Dashboard:clear_content()
+    vim.api.nvim_buf_clear_namespace(
+        self.content_buf,
+        Dashboard.ns_content,
+        0,
+        -1
+    )
+end
+
+-- Full re-render
+function Dashboard:refresh()
+    self:clear_content()
+    for _, row in ipairs(self.rows) do
+        self:render_row(row)
+    end
 end
 
 -- ============================================================================
 -- Line Updating
 -- ============================================================================
+
+function Dashboard:update_row(row_name)
+    local row = self:find(row_name)
+    if not row then return end
+
+    -- Check if any element is dirty
+    local needs_update = false
+    for _, elem in ipairs(row.elements) do
+        if elem:is_dirty() then
+            needs_update = true
+            break
+        end
+    end
+
+    if needs_update then
+        self:render_row(row)
+
+        -- Mark elements clean
+        for _, elem in ipairs(row.elements) do
+            elem:mark_clean()
+        end
+    end
+end
+
 function Dashboard:update_line(row)
     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
         return
@@ -935,11 +1048,11 @@ function Dashboard:update_line(row)
     local config_button = string.format("[%s %s]", icons.config or "󰒓", config)
 
     local deps_buttons = row.deps:render_buttons()
-    local message_text = row.message:render()
     local deps_text = (#deps_buttons > 0) and (table.concat(deps_buttons, " ")) or ""
-    local error_text = row.error ~= nil and row.error
 
-    -- In dashboard.lua, update_line function around line 520:
+    local message_text = row.message:render()
+    local error_text = row.error ~= nil and row.error:render()
+
     local lazy_text = ""
     local info = ""
     local lazy_trigger_type = ""
@@ -1080,9 +1193,9 @@ function Dashboard:update_line_internal(row)
     local padded = add_padding_to_line(line_text, 1)
     local current_line = vim.api.nvim_buf_get_lines(self.content_buf, l, l + 1, false)[1] or ""
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
     vim.api.nvim_buf_set_text(self.content_buf, l, 0, l, #current_line, { padded })
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
 
     vim.api.nvim_buf_clear_namespace(self.content_buf, ns, l, l + 1)
 
@@ -1132,8 +1245,8 @@ end
 -- ============================================================================
 function Dashboard:resort_rows()
     table.sort(self.rows, function(a, b)
-        local status_a = a.status.value or "not_loaded"
-        local status_b = b.status.value or "not_loaded"
+        local status_a = a.elements.status.value or "not_loaded"
+        local status_b = b.elements.status.value or "not_loaded"
         local sa = STATUS_ORDER[status_a] or 999
         local sb = STATUS_ORDER[status_b] or 999
 
@@ -1141,8 +1254,8 @@ function Dashboard:resort_rows()
             return sa < sb
         end
 
-        local stage_a = a.stage.value or "now"
-        local stage_b = b.stage.value or "now"
+        local stage_a = a.elements.stage.value or "now"
+        local stage_b = b.elements.stage.value or "now"
         local sta = STAGE_ORDER[stage_a] or 999
         local stb = STAGE_ORDER[stage_b] or 999
 
@@ -1161,7 +1274,7 @@ function Dashboard:rebuild_display()
         return
     end
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
     vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
 
     for i, row in ipairs(self.rows) do
@@ -1177,7 +1290,7 @@ function Dashboard:rebuild_display()
             right_gravity = true,
         })
 
-        self:update_line_internal(row)
+        self:update_row(row.name)
     end
 end
 
@@ -1198,28 +1311,30 @@ function Dashboard:expand_details(row)
         return
     end
 
+    local elements = row.elements
     local details = {
-        string.format("   ├─ Status: %s", row.status_two:render()),
-        string.format("   ├─ Stage: %s", row.stage_two:render()),
-        string.format("   ├─ Install Time: %s", row.install_duration:render() or "0"),
-        string.format("   ├─ Config Time: %s", row.config_duration:render() or "0"),
+        string.format("   ├─ Status: %s", elements.status_two:render()),
+        string.format("   ├─ Stage: %s", elements.stage_two:render()),
+        string.format("   ├─ Install Time: %s", elements.install_duration:render() or "0"),
+        string.format("   ├─ Config Time: %s", elements.config_duration:render() or "0"),
+        string.format("   ├─ Path: %s", elements.path:render()),
     }
 
     -- Add lazy trigger details for lazy stage packs
-    if row.stage.value == "lazy" and row.lazy and row.lazy.render_detailed then
-        table.insert(details, string.format("   ├─ Trigger: %s", row.lazy:render_detailed()))
+    if elements.stage.value == "lazy" and elements.lazy and elements.lazy.render_detailed then
+        table.insert(details, string.format("   ├─ Trigger: %s", elements.lazy:render_detailed()))
     end
     table.insert(
         details,
         string.format(
             "   └─ Deps: %s",
-            (#row.deps:render_buttons() > 0 and row.deps:render_buttons_joined() or "none")
+            (#elements.deps:render_buttons() > 0 and elements.deps:render_buttons_joined() or "none")
         )
     )
 
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
     vim.api.nvim_buf_set_lines(self.content_buf, l + 1, l + 1, false, details)
-    vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
 
     row.expanded = true
     row.details_count = #details
@@ -1241,9 +1356,9 @@ function Dashboard:collapse_details(row)
 
     local count = row.details_count or 0
     if count > 0 then
-        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
+        vim.api.nvim_set_option_value( "modifiable", true, { buf = self.content_buf})
         vim.api.nvim_buf_set_lines(self.content_buf, l + 1, l + 1 + count, false, {})
-        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", false)
+        vim.api.nvim_set_option_value( "modifiable", false, { buf = self.content_buf})
     end
 
     row.expanded = false
@@ -1384,7 +1499,7 @@ function Dashboard:open()
         and self.content_win
         and vim.api.nvim_win_is_valid(self.content_win)
     then
-        self:focus_content_window()
+        self:focus_first_pack()
         return
     end
 
@@ -1400,17 +1515,18 @@ function Dashboard:open()
 
     -- NOW render all packs that were tracked before dashboard opened
     for name, row in pairs(self.rows_by_name) do
-        local index = #self.rows + 1
-        local line = index - 1
-
-        vim.api.nvim_buf_set_option(self.content_buf, "modifiable", true)
-        self:_ensure_lines(line)
-
-        row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
-            right_gravity = true,
-        })
-
-        self:update_line(row)
+        self:render_row(row)
+        -- local index = #self.rows + 1
+        -- local line = index - 1
+        --
+        -- vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
+        -- self:_ensure_lines(line)
+        --
+        -- row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
+        --     right_gravity = true,
+        -- })
+        --
+        -- self:update_line(row)
         self:debug_log(string.format("Rendered tracked pack: %s", name))
     end
 
@@ -1420,12 +1536,16 @@ function Dashboard:open()
 end
 
 function Dashboard:close()
-    -- Unregister event listeners first
-    -- self:unlisten()
     self.is_open = false
 
+    -- Stop window check timer
+    if self.window_check_timer and not self.window_check_timer:is_closing() then
+        self.window_check_timer:close()
+        self.window_check_timer = nil
+    end
+
     if self.render_timer and not self.render_timer:is_closing() then
-        self.render_timer:close() -- ← REQUIRED!
+        self.render_timer:close()
         self.render_timer = nil
     end
 
@@ -1441,10 +1561,10 @@ function Dashboard:close()
     end
     self.autocmd_ids = {}
 
-    -- Close windows and buffers
+    -- Close windows and buffers (as a unit)
     for _, win in ipairs({ self.header_win, self.content_win, self.footer_win }) do
         if win and vim.api.nvim_win_is_valid(win) then
-            vim.api.nvim_win_close(win, true)
+            pcall(vim.api.nvim_win_close, win, true)
         end
     end
 
@@ -1465,229 +1585,6 @@ function Dashboard:close()
     self.is_open = false
 end
 
--- Event Handlers
--- ============================================================================
--- function Dashboard:listen()
---     local Bus = self.bus
---     -- Store listener IDs for cleanup
---     self.event_listeners = {}
---
---     local function register(event_name, handler)
---         local id = Bus.on(event_name, function(data)
---             local ok, err = pcall(handler, data)
---             if not ok then
---                 vim.notify(
---                     string.format("Dashboard event handler error [%s]: %s", event_name, err),
---                     vim.log.levels.ERROR
---                 )
---             end
---         end)
---         table.insert(self.event_listeners, { event = event_name, id = id })
---     end
---
---     local function get_manager()
---         return self.container:resolve("manager")
---     end
---
---     register("pack:created", function(data)
---         self:add_pack(data)
---     end)
---
---     register("pack:all_created", function()
---         self:sync_all_packs()
---         vim.schedule(function()
---             self:resort_rows()
---             self:render_footer()
---             self:focus_content_window()
---         end)
---     end)
---
---     register("pack:install:start", function(data)
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         -- row.status:update(data.status)
---         -- row.status_two:update(data.status)
---         row.message:update(data.message)
---         self:update_line(row)
---     end)
---
---     register("pack:install:finish", function(data)
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         -- row.status:update(data.status)
---         -- row.status_two:update(data.status)
---         row.message:update(data.message)
---         row.install_duration:update(data.install_duration or 0)
---         self:update_line(row)
---     end)
---
---     register("pack:load:start", function(data)
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         row.message:update(data.message)
---         self:update_line(row)
---     end)
---
---     register("pack:load:complete", function(data)
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         row.message:update(data.message)
---         self:update_line(row)
---         self:resort_rows()
---     end)
---
---     register("pack:config:start", function(data)
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         -- row.status:update(data.status)
---         -- row.status_two:update(data.status)
---         row.message:update(data.message)
---         self:update_line(row)
---     end)
---
---     register("pack:config:finish", function(data)
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         -- row.status:update(data.status)
---         -- row.status_two:update(data.status)
---         row.message:update(data.message)
---         row.config_duration:update(data.config_duration or 0)
---         self:update_line(row)
---     end)
---
---     -- register("pack:lazy", function(data)
---     --     local row = self:find(data.name)
---     --     if not row then
---     --         return
---     --     end
---     --
---     --     row.status:update(data.status)
---     --     row.status_two:update(data.status)
---     --     row.message:update(data.message)
---     --
---     --     -- Only update if we have valid trigger data
---     --     if row.lazy and data.trigger and next(data.trigger) ~= nil then
---     --         row.lazy:update(data.trigger)
---     --     end
---     --     -- Don't update if data.trigger is nil - keep existing data
---     --
---     --     self:update_line(row)
---     -- end)
---
---     register("pack:failed", function(data)
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         row.status:update(data.status)
---         row.status_two:update(data.status)
---         row.error:update(data.error)
---         row.message:update("✖ " .. (data.reason or "Unknown error"))
---         self:update_line(row)
---     end)
---
---     register("pack:complete", function()
---         vim.schedule(function()
---             self:resort_rows()
---             vim.defer_fn(function()
---                 self:focus_content_window()
---             end, 50)
---         end)
---     end)
---
---     register("pack:status:change", function(data)
---         local row = self:find(data.name)
---         if not row or data.new_status == "created" then
---             return
---         end
---         row.status:update(data.new_status)
---         row.status_two:update(data.new_status)
---         self:update_line(row)
---     end)
---
---     register("pack:task:start", function(data)
---         local Manager = get_manager()
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         local pack = Manager.packs[data.name]
---         if pack then
---             row.task_progress:update(pack:get_task_progress())
---         end
---         row.message:update(string.format("Running task: %s", data.task))
---         self:update_line(row)
---     end)
---
---     register("pack:task:complete", function(data)
---         local Manager = get_manager()
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         local pack = Manager.packs[data.name]
---         if pack then
---             row.task_progress:update(pack:get_task_progress())
---         end
---         if data.status == "success" then
---             row.message:update(string.format("✓ %s", data.task))
---         elseif data.status == "failed" then
---             row.message:update(string.format("✗ %s: %s", data.task, data.error or "failed"))
---         end
---         self:update_line(row)
---     end)
---
---     register("pack:lifecycle:complete", function(data)
---         local row = self:find(data.name)
---         if not row then
---             return
---         end
---         row.message:update("All tasks complete")
---         self:update_line(row)
---     end)
--- end
---
--- function Dashboard:unlisten()
---     if not self.event_listeners then
---         return
---     end
---     local Bus = self.bus
---
---     for _, listener in ipairs(self.event_listeners) do
---         -- Try multiple patterns for event cleanup based on common event bus APIs
---         local ok = pcall(function()
---             if type(Bus.off) == "function" then
---                 -- Pattern 1: Event.off(event_name, id)
---                 Bus.off(listener.event, listener.id)
---             elseif type(Bus.remove) == "function" then
---                 -- Pattern 2: Event.remove(event_name, id)
---                 Event.remove(listener.event, listener.id)
---             elseif type(Bus.unsubscribe) == "function" then
---                 -- Pattern 3: Event.unsubscribe(id)
---                 Bus.unsubscribe(listener.id)
---             end
---         end)
---
---         if not ok then
---             vim.notify(string.format("Failed to unregister event listener: %s", listener.event), vim.log.levels.WARN)
---         end
---     end
---
---     self.event_listeners = {}
--- end
---
 -- ============================================================================
 -- Window Focus Management
 -- ============================================================================
@@ -1749,7 +1646,7 @@ function Dashboard:batch_update_lines(row_updates)
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
 
     for _, row in ipairs(row_updates) do
-        self:update_line_internal(row)
+        self:update_row(row.name)
     end
 
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
@@ -1762,13 +1659,14 @@ function Dashboard:sync_all_packs()
     end
 
     for name, pack in pairs(self.manager.packs) do
-        if not self.rows_by_name[name] then
+        local row = self.rows_by_name[name]
+        if not row then
             self:add_pack({
                 name = name,
                 pack = pack,
-                stage = (pack.stage and pack.stage.value) or "now",
-                status = (pack.status and pack.status.value) or "not_loaded",
-                message = (pack.message and pack.message.value) or "",
+                stage = pack:get_stage(),
+                status = pack:get_status(),
+                message = "Idle",
             })
         end
     end
@@ -1779,8 +1677,42 @@ end
 -- Initialization
 -- ============================================================================
 function Dashboard:init(container, elements, icons, opts)
-    opts = opts or {}
-
+    self.opts = opts or {}
+    self.tabs = {
+        { id = "all", label = "All" },
+        { id = "loaded", label = "Loaded" },
+        { id = "not_loaded", label = "Not Loaded" },
+        { id = "lazy", label = "Lazy" },
+        { id = "now", label = "Now" },
+        { id = "later", label = "Later" },
+        { id = "failed", label = "Failed" },
+        { id = "disabled", label = "Disabled" },
+    }
+    self.active_tab_index = 1
+    self.rows = {}
+    self.rows_by_name = {}
+    self.header_buf = nil
+    self.header_win = nil
+    self.content_buf = nil
+    self.content_win = nil
+    self.footer_buf = nil
+    self.footer_win = nil
+    self.autocmd_ids = {}
+    self.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
+    self.ns_content = vim.api.nvim_create_namespace("SageDashboardContent")
+    self.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
+    self.ns_ui = vim.api.nvim_create_namespace("SageUI")
+    self.ns_footer = vim.api.nvim_create_namespace("SageDashboardFooter")
+    self.ns_background = vim.api.nvim_create_namespace("SageBackground") -- Priority 50
+    self.ns_text = vim.api.nvim_create_namespace("SageText") -- Priority 100
+    self.ns_buttons = vim.api.nvim_create_namespace("SageButtons") -- Priority 150
+    self.ns_status = vim.api.nvim_create_namespace("SageStatus") -- Priority 200
+    self.ns_overlay = vim.api.nvim_create_namespace("SageOverlay") -- Priority 250
+    self.last_stats = nil
+    self.header_height = 4
+    self.footer_height = 6
+    self.is_valid = false
+    self.should_track = true
     self.render_timer = nil -- ✅ Initialize
     self._footer_timer = nil
     self.autocmd_ids = {}
@@ -1828,9 +1760,25 @@ function Dashboard:init(container, elements, icons, opts)
     vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
     vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
     vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
-
+    vim.api.nvim_set_hl(0, 'SageStatusCreated', { fg = '#7aa2f7', italic = true })
+    vim.api.nvim_set_hl(0, 'SageStatusLoaded', { fg = '#9ece6a', bold = true })
+    vim.api.nvim_set_hl(0, 'SageStatusFailed', { fg = '#f7768e', underline = true })
+    vim.api.nvim_set_hl(0, 'SageLazyBracket', { fg = '#bb9af7' })
+    vim.api.nvim_set_hl(0, 'SageLazyIcon', { fg = '#bb9af7' })
+    vim.api.nvim_set_hl(0, 'SageLazyLabel', { fg = '#bb9af7' })
+    vim.api.nvim_set_hl(0, 'SageLazyValue', { fg = '#bb9af7' })
+    vim.api.nvim_set_hl(0, 'SageLink', { fg = '#6495ed', underline = true })
     vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
     vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
+    vim.api.nvim_set_hl(0, 'SageStatusCreated', { fg = '#7aa2f7', italic = true })
+    vim.api.nvim_set_hl(0, 'SageStatusLoaded', { fg = '#9ece6a', bold = true })
+    vim.api.nvim_set_hl(0, 'SageStatusFailed', { fg = '#f7768e', underline = true })
+    vim.api.nvim_set_hl(0, 'SageLazyBracket', { fg = '#bb9af7' })
+    vim.api.nvim_set_hl(0, 'SageLazyIcon', { fg = '#bb9af7' })
+    vim.api.nvim_set_hl(0, 'SageLazyLabel', { fg = '#bb9af7' })
+    vim.api.nvim_set_hl(0, 'SageLazyValue', { fg = '#bb9af7' })
+    vim.api.nvim_set_hl(0, 'SageLink', { fg = '#6495ed', underline = true })
+
     -- ========================================================================
     -- BUTTON HIGHLIGHTS (Interactive elements)
     -- ========================================================================
@@ -1841,9 +1789,13 @@ function Dashboard:init(container, elements, icons, opts)
     -- Lazy trigger buttons [󰘳 cmd: Telescope] [󰈔 ft: lua]
     vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
 
-    -- Dependency buttons [dep_name]
+        -- Dependency buttons [dep_name]
     vim.api.nvim_set_hl(0, "SageDependency", { link = "Underlined", default = true })
 
+    -- ====
+    -- Sage Pack Info Details
+    -- ====
+    vim.api.nvim_set_hl(0, "SagePackOnlyUs", { fg = "#00ff00" })
     -- ========================================================================
     -- TRIGGER TYPE SPECIFIC HIGHLIGHTS
     -- ========================================================================
@@ -1879,6 +1831,14 @@ function Dashboard:init(container, elements, icons, opts)
             vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
             vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
             vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
+            vim.api.nvim_set_hl(0, 'SageStatusCreated', { fg = '#7aa2f7', italic = true })
+            vim.api.nvim_set_hl(0, 'SageStatusLoaded', { fg = '#9ece6a', bold = true })
+            vim.api.nvim_set_hl(0, 'SageStatusFailed', { fg = '#f7768e', underline = true })
+            vim.api.nvim_set_hl(0, 'SageLazyBracket', { fg = '#bb9af7' })
+            vim.api.nvim_set_hl(0, 'SageLazyIcon', { fg = '#bb9af7' })
+            vim.api.nvim_set_hl(0, 'SageLazyLabel', { fg = '#bb9af7' })
+            vim.api.nvim_set_hl(0, 'SageLazyValue', { fg = '#bb9af7' })
+            vim.api.nvim_set_hl(0, 'SageLink', { fg = '#6495ed', underline = true })
             vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
             vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
             vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
@@ -1903,8 +1863,7 @@ function Dashboard:init(container, elements, icons, opts)
     end, { desc = "Close Sage dashboard" })
 
     vim.api.nvim_create_user_command("SageToggle", function()
-        local manager = require("sage.manager")
-        local dashboard = manager.container:resolve("dashboard")
+        local dashboard = self.manager.container:resolve("dashboard")
         if dashboard.is_open then
             dashboard:close()
         else
@@ -1913,7 +1872,8 @@ function Dashboard:init(container, elements, icons, opts)
     end, { desc = "Toggle Sage dashboard" })
 
     vim.api.nvim_create_user_command("SageReload", function()
-        require("sage.core.loader"):close_all()
+        local Loader = self.manager.container:resolve("loader")
+        Loader:close_all()
         Dashboard:close()
         vim.notify("Sage: loaders and dashboard cleaned up.", vim.log.levels.INFO)
     end, { desc = "Reload Sage loaders and dashboard" })
@@ -1922,8 +1882,8 @@ function Dashboard:init(container, elements, icons, opts)
         vim.api.nvim_exec_autocmds("VimLeavePre", {})
     end, { desc = "Trigger Sage cleanup" })
 
-    vim.api.nvim_create_user_command("SageDebugLazy", function(opts)
-        local pack_name = opts.args
+    vim.api.nvim_create_user_command("SageDebugLazy", function(c_opts)
+        local pack_name = c_opts.args
         local row = Dashboard:find(pack_name)
 
         if not row then

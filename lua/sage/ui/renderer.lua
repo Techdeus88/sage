@@ -33,9 +33,9 @@ function Renderer:on_pack_created(data)
     self.created_count = self.created_count + 1
     local index = self.created_count
 
-    -- Visible stagger: one new row every 80ms
+    -- Visible stagger: one new row every 65ms
     -- tweak this if you want faster/slower animation
-    local delay = index * 80
+    local delay = index * 65
 
     self.queue:push(function()
         vim.defer_fn(function()
@@ -59,7 +59,7 @@ function Renderer:render_pack_created(data)
         local row = self.dm.dashboard:find(data.name)
         if row then
             self:_apply_update_to_row(row, pending)
-            self.dm.dashboard:update_line(row)
+            self.dm.dashboard:update_row(row)
         end
     end
 

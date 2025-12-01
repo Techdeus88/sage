@@ -1,52 +1,76 @@
 return {
-	-- Status icons
-	later = "",
-	lazy = "󰒲",
-	disabled = "󰟢",
-	loaded = "●",
-	not_loaded = "○",
-	failed = "✗",
-	installing = "󰇚",
-	configuring = "󰒓",
-	lazy = "󰒲",
-	disabled = "󰪎",
-	waiting = "󰔟",
-	plugin = "",
-	pack = "",
-	keys = "",
-	ft = "",
-	setup = "",
-	config = "",
+    -- Base icons
+    base = {
+        plugin = "",
+        pack = "",
+        keys = "",
+        setup = "",
+        config = "",
+		global = "",
+		error = "",
+		warn = "",
+		hint = "󰌵",
+		info = "",
+		other = "",
+    },
 
-	-- Stage icons
-	now = "",
-	later = "󰔠",
-	
-	-- Trigger type icons
-	event = "",
-	filetype = "󰈔",   -- File icon for filetypes
-	cmd = " ",
-	command = " ",
-	keymap = "󰌓",     -- Keyboard for keymaps
-	
+    -- Status icons
+    status = {
+        loaded = "●",
+        not_loaded = "○",
+        failed = "✗",
+        installing = "󰇚",
+        configuring = "󰒓",
+        disabled = "󰪎",
+        waiting = "󰔟",
+		runtime = " ",
+    },
+
+    -- Stage icons
+    stage = {
+        now = "",
+        later = "󰔠",
+        lazy = "󰒲",
+        disabled = "󰟢",
+    },
+
+    -- Trigger type icons
+    trigger = {
+        event = "",
+        filetype = "󰈔",   -- File icon for filetypes
+        ft = "",
+        cmd = " ",
+		keys = " ",
+        command = " ",
+        keymap = "󰌓",     -- Keyboard for keymaps
+    },
+
 	-- Dependency icons
-	depends = "",
-	after = "󰁔",
-	before = "󰁒",
-	
-	-- Timing icons
-	install = "󰇚",    -- Download/install
-	duration = "󱎫",    -- Clock/timer
-	
-	-- UI elements
-	expand = "",
-	collapse = "",
-	separator = "•",
-	arrow_right = "",
-	arrow_down = "",
-	setup = "󰒓",     -- Config/setup
-	
+    depends = {
+        depends =  "",
+        after = "󰁔",
+        before = "󰁒",
+    },
+
+    -- Timing icons
+    timers = {
+        install = "󰇚",    -- Download/install
+        duration = "󱎫",    -- Clock/timer
+    },
+
+	-- UI nav elements
+    navigation = {
+        expand = "└─",
+        collapse = "├─",
+        separator = "•",
+        arrow_right = "",
+        arrow_down = "",
+        setup = "󰒓",     -- Config/setup
+    },
+
 	-- Progress
-	progress_full = "█",
-	progress_empty = "░",
+    progress = {
+        full = "█",
+        empty = "░",
+    },
 }

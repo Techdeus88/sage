@@ -1,7 +1,8 @@
 local icons = require("sage.ui.icons")
--- ========================================================================jjjj-- ============================================================================
+
+-- ======================================================================
 -- BASE ELEMENT CLASS
--- ============================================================================
+-- ======================================================================
 
 local Element = {}
 Element.__index = Element
@@ -12,7 +13,8 @@ function Element.new(name, initial_value)
     self.value = initial_value
     self.dirty = false
     self.visible = true
-    self.format_fn = nil -- Custom formatting function
+    self.format_fn = nil
+    self.hl_group = "Normal"  -- Base highlight group
     return self
 end
 
@@ -39,6 +41,14 @@ function Element:set_visible(visible)
     end
 end
 
+-- Set highlight
+function Element:set_highlight(hl_group)
+    if self.hl_group ~= hl_group then
+        self.hl_group = hl_group
+        self.dirty = true
+    end
+end
+
 -- Check if element changed
 function Element:is_dirty()
     return self.dirty
@@ -47,6 +57,16 @@ end
 -- Mark clean after rendering
 function Element:mark_clean()
     self.dirty = false
+end
+
+-- Render Element
+function Element:render_with_hl()
+    local text = self:render()
+    return {
+        text = text,
+        hl_group = self.hl_group,
+        length = #text
+    }
 end
 
 -- Render element to string
@@ -76,12 +96,26 @@ function Element:clone()
     return new_elem
 end
 
+-- ============================================================================
+
 local TextElement = setmetatable({}, { __index = Element })
 TextElement.__index = TextElement
 
 function TextElement.new(name, initial_value)
     local self = Element.new(name, initial_value)
     return setmetatable(self, TextElement)
+end
+
+-- ============================================================================
+
+local LinkElement = setmetatable({}, { __index = Element })
+LinkElement.__index = LinkElement
+
+function LinkElement.new(name, path)
+    local self = Element.new(name, path)
+    self.hl_group = "SageLink"
+
+    return setmetatable(self, LinkElement)
 end
 
 -- ============================================================================
@@ -135,14 +169,33 @@ function LazyElement.new(name, trigger_data)
     return setmetatable(self, LazyElement)
 end
 
-function LazyElement:render()
+function LazyElement:render_with_hl()
+    if not self.visible or not self.value or not next(self.value) then
+        return { { text = "", hl_group = self.hl_group } }
+    end
+
+    local trigger_type, trigger_values = self:_parse(self.value)
+
+    local icon, type_label, value_str = self:render(trigger_type, trigger_values)
+
+    -- Return array of segments with individual highlights
+    return {
+        { text = "[", hl_group = "SageLazyBracket" },
+        { text = icon .. " ", hl_group = "SageLazyIcon" },
+        { text = type_label .. ": ", hl_group = "SageLazyLabel" },
+        { text = value_str, hl_group = "SageLazyValue" },
+        { text = "]", hl_group = "SageLazyBracket" },
+    }
+end
+
+function LazyElement:render(trigger_type, trigger_values)
     if not self.visible or not self.value or not next(self.value) then
         return ""
     end
 
-    local trigger_data = self.value
-    local trigger_type, trigger_values = self:_parse(trigger_data)
-
+    -- local trigger_data = self.value
+    -- local trigger_type, trigger_values = self:_parse(trigger_data)
+    --
     if trigger_type == "none" or #trigger_values == 0 then
         return ""
     end
@@ -167,7 +220,8 @@ function LazyElement:render()
         value_str = value_str:sub(1, 27) .. "..."
     end
 
-    return string.format("[%s %s: %s]", icon, type_label, value_str)
+    -- return string.format("[%s %s: %s]", icon, type_label, value_str)
+    return icon, type_label, value_str
 end
 
 function LazyElement:render_detailed()
@@ -266,6 +320,7 @@ function StatusElement.new(name, initial_value, type)
     local self = Element.new(name, initial_value or "idle")
 
     self.type = type or "icon"
+    self.hl_group = "StatusElement"
     self.status_map = {
         idle = "○",
         created = "◌",
@@ -282,7 +337,35 @@ function StatusElement.new(name, initial_value, type)
         ready = "●",
         failed = "✗",
     }
+    -- Status-specific highlight mapping
+    self.status_highlights = {
+        created = "SageStatusCreated",
+        configuring = "SageStatusCreated",
+        disabled = "SagetatusCreated",
+        idle = "SagetatusCreated",
+        installed = "SageStatusCreated",
+        installing = "SageStatusCreated",
+        lazy = "SageStatusCreated",
+        loading = "SageStatusCreated",
+        pending = "SageStatusCreated",
+        waiting = "SageStatusCreated",
+        configured = "SageStatusLoaded",
+        ready = "SageStatusLoaded",
+        loaded = "SageStatusLoaded",
+        failed = "SageStatusFailed",
+    }
     return setmetatable(self, StatusElement)
+end
+
+function StatusElement:render_with_hl()
+    local text = self:render()
+    -- Use status-specific highlight if available
+    local hl = self.status_highlights[self.value] or self.hl_group
+    return {
+        text = text,
+        hl_group = hl,
+        length = #text
+    }
 end
 
 function StatusElement:render()
@@ -304,18 +387,18 @@ end
 local StageElement = setmetatable({}, { __index = Element })
 StageElement.__index = StageElement
 
-function StageElement.new(name, initial_value, type, icons)
+function StageElement.new(name, initial_value, type, stage_icons)
     local self = Element.new(name, initial_value)
 
     self.type = type or "icon_text"
     -- icons is now passed as parameter
-    icons = icons or {}
+    self.icons = stage_icons or icons
 
     self.stage_map = {
-        now = (icons.stage and icons.stage.now),
-        later = (icons.stage and icons.stage.later),
-        lazy = (icons.stage and icons.stage.lazy),
-        disabled = (icons.stage and icons.stage.disabled),
+        now = (self.icons.stage and self.icons.stage.now),
+        later = (self.icons.stage and self.icons.stage.later),
+        lazy = (self.icons.stage and self.icons.stage.lazy),
+        disabled = (self.icons.stage and self.icons.stage.disabled),
     }
     return setmetatable(self, StageElement)
 end
@@ -551,6 +634,33 @@ function IconElement:render()
     return self.value or ""
 end
 
+-- ============================================================================
+
+local ErrorElement = {}
+ErrorElement.__index = ErrorElement
+
+function ErrorElement.new(msg, code)
+    local self = setmetatable({}, ErrorElement)
+
+    self.value = msg
+    self.code = code
+    self.icon = icons.status.failed
+
+    return self
+end
+
+function ErrorElement:update(msg)
+    if msg ~= self.value then
+        self.value = msg
+    end
+end
+
+function ErrorElement:render()
+    return self.icon .. " " .. self.value:upper()
+end
+
+-- ============================================================================
+
 local TaskProgressElement = {}
 TaskProgressElement.__index = TaskProgressElement
 
@@ -612,4 +722,6 @@ return {
     IconElement = IconElement,
     LazyElement = LazyElement,
     TaskProgressElement = TaskProgressElement,
+    ErrorElement = ErrorElement,
+    LinkElement = LinkElement,
 }

@@ -9,20 +9,19 @@ function Pack.init(deps)
     utils = deps.utils
 end
 
-function Pack.new(spec)
+function Pack.new(n_spec)
     local self = setmetatable({}, Pack)
 
-    self.name = spec.name
-    self.lifecycle = nil -- will be set later by the manager / lifecycle code
-    self.status = "idle"
-    self.loaded = false
-    self.installed = false
+    self.name = n_spec.name
     self.failed = false
+    self.installed = false
+    self.lifecycle = nil -- will be set later by the manager / lifecycle code
+    self.loaded = false
+    self.status = "idle"
     self.times = {
         install_duration = 0,
         config_duration = 0,
     }
-    self.path = ""
 
     local v_spec = {
         active = false,
@@ -33,7 +32,7 @@ function Pack.new(spec)
     }
 
     self.specs = {}
-    self.specs.normalize = spec
+    self.specs.normalize = n_spec
     self.specs.vim = v_spec
 
     return self
@@ -88,12 +87,12 @@ function Pack:set_tags(tags)
 end
 
 function Pack:set_stage(stage)
-    self.specs.normalize.data.on.stage = stage
+    self.specs.normalize.data.stage = stage
     return self
 end
 
 function Pack:get_stage()
-    return self.specs.normalize.data.on.stage
+    return self.specs.normalize.data.stage
 end
 
 function Pack:get_path()
@@ -131,17 +130,17 @@ end
 -- ---------------------------------------------------------------------------
 -- Integration with vim.pack
 --{
- -- active  = boolean,           -- added via vim.pack.add() this session
-  --path    = string,            -- plugin path on disk
- -- rev     = string,            -- git revision
- -- branches = { ... }?,         -- optional
-  -- tags     = { ... }?,         -- optional
+-- active  = boolean,           -- added via vim.pack.add() this session
+--path    = string,            -- plugin path on disk
+-- rev     = string,            -- git revision
+-- branches = { ... }?,         -- optional
+-- tags     = { ... }?,         -- optional
 --   spec    = {
- --   src     = string,          -- git URL
-  --  name    = string,          -- plugin name
-  --  version = string|VersionRange|nil,
-  --  data    = any,             -- arbitrary user data
- -- },
+--   src     = string,          -- git URL
+--  name    = string,          -- plugin name
+--  version = string|VersionRange|nil,
+--  data    = any,             -- arbitrary user data
+-- },
 -- }
 
 function Pack:get_native()

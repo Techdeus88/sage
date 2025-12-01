@@ -92,10 +92,11 @@ local VALID_PACK_DATA_KEYS = {
     depends = true,
     build = true,
     config = true,
-    before = true,
-    after = true,
+    init = true,
+    post = true,
     on = true,
     source = true,
+    stage = true,
     enabled = true,
     priority = true,
 }
@@ -111,7 +112,6 @@ local VALID_ON_KEYS = {
     cmds = true,
     cmd = true,
     keys = true,
-    stage = true,
 }
 
 -- ============================================================================
@@ -295,10 +295,12 @@ end
 -- ============================================================================
 -- Spec Normalization
 -- ============================================================================
-local function determine_stage(spec, stages)
+local function determine_stage(spec)
+    local stage = ""
     local disabled = spec.enabled ~= nil and spec.enabled == false
     if disabled then
-        return stages['DISABLED']
+        stage = M.stages["DISABLED"]
+        return stage
     end
 
     local on = spec.on
@@ -316,16 +318,18 @@ local function determine_stage(spec, stages)
             or on.keys ~= nil
         )
     then
-        return stages['LAZY']
+        stage = M.stages["LAZY"]
+        return stage
     end
 
     if on ~= nil and on.stage == "now" then
-        return stages['now']
+        stage = M.stages["NOW"]
+        return stage
     end
 
-    return stages['later']
+    stage = M.stages["LATER"]
+    return stage
 end
-
 
 ---Normalize a user spec into the standard pack format
 ---@param spec table User spec
@@ -340,18 +344,20 @@ local function normalize_spec(spec)
     local name = spec.name or extract_name(source)
     local version = spec.version
     local disabled = spec.enabled ~= nil and spec.enabled == false
-    local stage = determine_stage(spec, M.stages)
+    local stage = determine_stage(spec)
     local priority = spec.priority or 100
 
     local n_spec = {}
 
     -- Required fields
-    n_spec['src'] = prefix .. source
-    n_spec['name'] = name
-    n_spec['version'] = version
+    n_spec["src"] = prefix .. source
+    n_spec["name"] = name
+    n_spec["version"] = version
 
     -- Initialize data container (arbitrary data)
-    n_spec['data'] = {}
+    n_spec["data"] = {}
+    n_spec["data"]["on"] = {}
+
     n_spec.data.enabled = not disabled
     -- Move config-related fields into data
     if source then
@@ -370,24 +376,29 @@ local function normalize_spec(spec)
         n_spec.data.config = spec.config
     end
 
-    if spec.before then
-        n_spec.data.before = spec.before
+    if spec.init then
+        n_spec.data.init = spec.init
     end
 
-    if spec.after then
-        n_spec.data.after = spec.after
+    if spec.post then
+        n_spec.data.post = spec.post
     end
 
     if spec.depends then
         n_spec.data.depends = spec.depends
     end
 
-    if spec.on then
-        n_spec.data.on = vim.deepcopy(spec.on)
+    if stage then
+        n_spec.data.stage = stage
     end
 
-    if stage then
-        n_spec.data.on.stage = stage
+    if spec.on then
+        n_spec.data.on.events = spec.on.events or spec.on.event
+        n_spec.data.on.fts = spec.on.fts or spec.on.ft
+        n_spec.data.on.cmds = spec.on.cmds or spec.on.cmd
+        n_spec.data.on.keys = spec.on.keys
+        n_spec.data.on.before = spec.on.before
+        n_spec.data.on.after = spec.on.after
     end
 
     return n_spec
@@ -429,11 +440,7 @@ local function load_specs(opts)
 
                 if not is_valid then
                     vim.notify(
-                        string.format(
-                            "Invalid user spec in %s:\n%s",
-                            file,
-                            table.concat(errors, "\n")
-                        ),
+                        string.format("Invalid user spec in %s:\n%s", file, table.concat(errors, "\n")),
                         vim.log.levels.ERROR
                     )
                     goto continue
@@ -443,10 +450,7 @@ local function load_specs(opts)
                 local n_spec = normalize_spec(spec)
 
                 if not n_spec then
-                    vim.notify(
-                        string.format("Failed to normalize spec from %s", file),
-                        vim.log.levels.ERROR
-                    )
+                    vim.notify(string.format("Failed to normalize spec from %s", file), vim.log.levels.ERROR)
                     goto continue
                 end
 
@@ -471,10 +475,7 @@ local function load_specs(opts)
                     seen_names[name] = true
                     table.insert(all_specs, n_spec)
                 else
-                    vim.notify(
-                        string.format("Duplicate spec: %s (skipping)", name),
-                        vim.log.levels.WARN
-                    )
+                    vim.notify(string.format("Duplicate spec: %s (skipping)", name), vim.log.levels.WARN)
                 end
 
                 ::continue::
@@ -492,10 +493,7 @@ local function load_specs(opts)
         return all_specs
     end
 
-    vim.notify(
-        string.format("Loaded and normalized %d pack specs", #all_specs),
-        vim.log.levels.INFO
-    )
+    vim.notify(string.format("Loaded and normalized %d pack specs", #all_specs), vim.log.levels.INFO)
 
     return all_specs
 end
