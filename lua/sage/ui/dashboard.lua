@@ -1,5 +1,5 @@
-local width_percentage = 0.8
 local height_percentage = 0.8
+local width_percentage = 0.8
 
 local function center_text(text, width)
     local text_width = vim.fn.strdisplaywidth(text) -- Use display width for proper unicode handling
@@ -47,6 +47,11 @@ Dashboard.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
 Dashboard.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
 Dashboard.ns_ui = vim.api.nvim_create_namespace("SageUI")
 Dashboard.ns_footer = vim.api.nvim_create_namespace("SageDashboardFooter")
+Dashboard.ns_background = vim.api.nvim_create_namespace("SageBackground") -- Priority 50
+Dashboard.ns_text = vim.api.nvim_create_namespace("SageText") -- Priority 100
+Dashboard.ns_buttons = vim.api.nvim_create_namespace("SageButtons") -- Priority 150
+Dashboard.ns_status = vim.api.nvim_create_namespace("SageStatus") -- Priority 200
+Dashboard.ns_overlay = vim.api.nvim_create_namespace("SageOverlay") -- Priority 250
 Dashboard.last_stats = nil
 Dashboard.header_height = 4
 Dashboard.footer_height = 6
@@ -267,26 +272,55 @@ local function format_table(pack, tbl_order, indent, max_length, kind)
     return lines
 end
 
+-- Compare a Sage pack to native vim.pack info (Neovim 0.12)
 function Dashboard:display_pack_comparison(pack_name)
     local manager = self.container:resolve("manager")
     local utils = self.container:resolve("utils")
+
     local width = vim.o.columns
     local height = vim.o.lines
     local win_height = math.floor(height * 0.80)
     local win_width = math.floor(width * 0.60)
-    -- Calculate inner width (accounting for borders and padding)
-    local inner_width = win_width - 4 -- 2 for padding, 2 for borders
+    local inner_width = win_width - 4 -- 2 borders + 2 padding
 
     local pack = manager.packs[pack_name]
-
     if not pack then
-        utils.safe_notify(string.format("[%s] Pack not found", pack_name), vim.log.levels.ERROR)
+        utils.safe_notify(string.format("[Sage] Pack not found: %s", pack_name), vim.log.levels.ERROR)
         return
     end
 
-    local _, n_pack = pcall(function()
+    -- Native vim.pack view (usually wraps vim.pack.get())
+    local ok_native, n_pack = pcall(function()
         return pack:get_native()
     end)
+    if not ok_native then
+        n_pack = nil
+    end
+    print(vim.inspect(n_pack))
+
+    -- Small helper: get nested value (uses your existing helpers)
+    local function get_field(root, path)
+        if not root or not path then
+            return nil
+        end
+        local keys = split_by_period(path)
+        return getTableValue(root, keys)
+    end
+
+    local function value_to_string(v)
+        local t = type(v)
+        if v == nil then
+            return "nil"
+        elseif t == "string" then
+            return v
+        elseif t == "number" or t == "boolean" then
+            return tostring(v)
+        elseif t == "table" then
+            return vim.inspect(v)
+        else
+            return "<" .. t .. ">"
+        end
+    end
 
     local function get_pack_buf_win()
         local row = math.floor((height - win_height) / 2)
@@ -303,10 +337,101 @@ function Dashboard:display_pack_comparison(pack_name)
             border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
             zindex = 100,
         })
+
         return buf, win
     end
 
-    local function get_pack_content(pack_name)
+    local function add_side_by_side_section(lines, title, fields)
+        table.insert(lines, "")
+        if title and title ~= "" then
+            table.insert(lines, title)
+        end
+
+        local label_col = 14
+        local value_col = math.floor((inner_width - label_col - 5) / 2) -- 5 ≈ " | " + margin
+
+        -- Header
+        local header = string.format(
+            "%-" .. label_col .. "s %-" .. value_col .. "s | %-" .. value_col .. "s",
+            "FIELD",
+            "SAGE",
+            "vim.pack"
+        )
+        table.insert(lines, header)
+        table.insert(lines, string.rep("─", inner_width))
+
+        for _, f in ipairs(fields) do
+            local s_val = f.sage and get_field(pack, f.sage) or nil
+            local n_val = f.native and get_field(n_pack, f.native) or nil
+
+            local s_str = value_to_string(s_val)
+            local n_str = value_to_string(n_val)
+
+            if #s_str > value_col then
+                s_str = s_str:sub(1, value_col - 1) .. "…"
+            end
+            if #n_str > value_col then
+                n_str = n_str:sub(1, value_col - 1) .. "…"
+            end
+
+            local row = string.format(
+                "%-" .. label_col .. "s %-" .. value_col .. "s | %-" .. value_col .. "s",
+                f.label or "",
+                s_str,
+                n_str
+            )
+            table.insert(lines, row)
+        end
+    end
+
+    local function get_diff_lines(fields)
+        local diff = {}
+        for _, f in ipairs(fields) do
+            if f.sage and f.native and n_pack ~= nil then
+                local s_val = get_field(pack, f.sage)
+                local n_val = get_field(n_pack, f.native)
+                -- Simple ~= comparison is usually enough for these scalars
+                if s_val ~= n_val then
+                    table.insert(diff, {
+                        label = f.label,
+                        sage = value_to_string(s_val),
+                        native = value_to_string(n_val),
+                    })
+                end
+            end
+        end
+        if #diff == 0 then
+            return { "", "No differences on the tracked fields 🎉" }
+        end
+
+        local lines = { "", "Diff (only mismatches):" }
+        table.insert(lines, string.rep("─", inner_width))
+        local label_col = 14
+        local value_col = math.floor((inner_width - label_col - 5) / 2)
+
+        for _, d in ipairs(diff) do
+            local s_str = d.sage
+            local n_str = d.native
+            if #s_str > value_col then
+                s_str = s_str:sub(1, value_col - 1) .. "…"
+            end
+            if #n_str > value_col then
+                n_str = n_str:sub(1, value_col - 1) .. "…"
+            end
+
+            local row = string.format(
+                "%-" .. label_col .. "s %-" .. value_col .. "s | %-" .. value_col .. "s",
+                d.label or "",
+                s_str,
+                n_str
+            )
+            table.insert(lines, row)
+        end
+
+        return lines
+    end
+
+    local function get_pack_content()
         local lines = {}
 
         -- Header box
@@ -324,74 +449,66 @@ function Dashboard:display_pack_comparison(pack_name)
         )
         table.insert(lines, "╚" .. string.rep("═", inner_width - 2) .. "╝")
         table.insert(lines, "")
+        table.insert(lines, "SAGE_PACK (sage.packs[name])  📦  VIM_PACK (vim.pack.get)")
+        table.insert(lines, "")
 
-        -- Content
-        local top_pack = {
-            name = pack_name,
-            order = {
-                { path = "name", label = "name" },
-                { path = "active", label = "active" },
-                { path = "installed", label = "installed" },
-                { path = "loaded", label = "loaded" },
-                { path = "path", label = "path" },
-                { path = "status", label = "status" },
-            },
-            kind = "pack",
+        -- Core pack-level fields
+        local core_fields = {
+            { label = "name", sage = "name", native = "spec.name" },
+            { label = "active", sage = "active", native = "active" },
+            { label = "installed", sage = "installed", native = nil },
+            { label = "loaded", sage = "loaded", native = nil },
+            { label = "status", sage = "status", native = nil },
+            { label = "path", sage = "path", native = "path" },
+            { label = "rev", sage = nil, native = "rev" },
         }
 
-        local top_spec = {
-            name = pack_name,
-            order = {
-                { path = "specs.normalize.src", label = "src" },
-                { path = "specs.normalize.version", label = "version" },
-                { path = "specs.normalize.data.stage", label = "stage" },
-                { path = "specs.normalize.data.config", label = "config" },
-                { path = "specs.normalize.data.priority", label = "priority" },
-                { path = "specs.normalize.data.depends", label = "dependencies" },
-                { path = "specs.normalize.data.before", label = "Before" },
-                { path = "specs.normalize.data.after", label = "After" },
-            },
-            kind = "spec",
+        add_side_by_side_section(lines, "Core", core_fields)
+
+        -- Spec-level fields (Sage normalize vs vim.pack.Spec)
+        local spec_fields = {
+            { label = "src", sage = "specs.normalize.src", native = "spec.src" },
+            { label = "version", sage = "specs.normalize.version", native = "spec.version" },
+            { label = "stage", sage = "specs.normalize.data.stage", native = "spec.data.stage" },
+            { label = "config", sage = "specs.normalize.data.config", native = "spec.data.config" },
+            { label = "priority", sage = "specs.normalize.data.priority", native = "spec.data.priority" },
+            { label = "depends", sage = "specs.normalize.data.depends", native = "spec.data.depends" },
+            { label = "before", sage = "specs.normalize.data.before", native = "spec.data.before" },
+            { label = "after", sage = "specs.normalize.data.after", native = "spec.data.after" },
         }
 
-        local content_lines = { "SAGE_PACK (sage.packs.name) 📦 VIM_PACK (vim.pack.get)", "" }
+        add_side_by_side_section(lines, "", spec_fields)
 
-        local pack_content_lines = format_table(pack, top_pack, 0, 8, "pack")
-        content_lines = vim.list_extend(content_lines, pack_content_lines)
-        local spec_content_lines = format_table(pack, top_spec, 0, 8, "spec")
-        content_lines = vim.list_extend(content_lines, spec_content_lines)
-
-        for _, content_text in ipairs(content_lines) do
-            local content_padding = math.floor((inner_width - vim.fn.strdisplaywidth(content_text)) / 2)
-            table.insert(lines, string.rep(" ", content_padding) .. content_text)
+        -- Diff section (only mismatched fields where both sides exist)
+        local all_for_diff = {}
+        for _, f in ipairs(core_fields) do
+            table.insert(all_for_diff, f)
+        end
+        for _, f in ipairs(spec_fields) do
+            table.insert(all_for_diff, f)
+        end
+        local diff_lines = get_diff_lines(all_for_diff)
+        for _, l in ipairs(diff_lines) do
+            table.insert(lines, l)
         end
 
         table.insert(lines, "")
-        -- Close instruction box
-        local close_text = "Press─'q-close'─'n-next'─'p-prev'"
+        local close_text = "Press 'q' to close"
         local close_padding = math.floor((inner_width - #close_text) / 2)
         table.insert(lines, string.rep("─", close_padding + 3) .. close_text .. string.rep("─", close_padding + 4))
-        -- table.insert(
-        --     lines,
-        --     "│"
-        --         .. string.rep(" ", close_padding)
-        --         .. close_text
-        --         .. string.rep(" ", inner_width - close_padding - #close_text - 2)
-        --         .. "│"
-        -- )
-        -- table.insert(lines, "└" .. string.rep("─", inner_width - 2) .. "┘")
 
-        -- Add padding to each line
-        local padded_lines = {}
-        for _, line in ipairs(lines) do
-            table.insert(padded_lines, "  " .. line) -- Add consistent left padding
+        -- Horizontal padding
+        local padded = {}
+        for _, l in ipairs(lines) do
+            local content_padding = math.max(0, math.floor((inner_width - vim.fn.strdisplaywidth(l)) / 2))
+            table.insert(padded, string.rep(" ", content_padding) .. l)
         end
 
-        return padded_lines
+        return padded
     end
 
     local buf, win = get_pack_buf_win()
-    local lines = get_pack_content(pack_name)
+    local lines = get_pack_content()
 
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -400,15 +517,19 @@ function Dashboard:display_pack_comparison(pack_name)
     vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
     vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
 
-    -- Add close keymaps
     vim.keymap.set("n", "q", function()
-        vim.api.nvim_buf_delete(buf, { force = true })
+        if vim.api.nvim_buf_is_valid(buf) then
+            vim.api.nvim_buf_delete(buf, { force = true })
+        end
     end, { buffer = buf, noremap = true, silent = true, desc = "Close comparison window" })
 
     vim.keymap.set("n", "<Esc>", function()
-        vim.api.nvim_buf_delete(buf, { force = true })
+        if vim.api.nvim_buf_is_valid(buf) then
+            vim.api.nvim_buf_delete(buf, { force = true })
+        end
     end, { buffer = buf, noremap = true, silent = true, desc = "Close comparison window" })
 end
+
 -- ============================================================================
 -- Header Rendering
 -- ============================================================================
@@ -530,7 +651,7 @@ function Dashboard:refresh_for_tab()
 
     -- Show message if no packs match the filter
     if not has_matches then
-        local no_packs_msg = string.format("No packs found for filter: %s", filter)
+        local no_packs_msg = string.format("No packs found for %s", filter)
         vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, { "", "  " .. no_packs_msg, "" })
     end
 
@@ -602,7 +723,6 @@ function Dashboard:render_footer()
 
     local win_width = vim.api.nvim_win_get_width(self.footer_win)
     local stats = self:get_stats()
-
     local ok, sage_metrics = pcall(require, "sage.metrics")
     local total_duration = 0
     if ok and sage_metrics and type(sage_metrics.get_event) == "function" then
@@ -722,7 +842,7 @@ function Dashboard:add_pack(data)
     if not row then
         row = {
             name = name,
-            :tatus_two = elem.StatusElement.new("status", status, "icon_text"),
+            status_two = elem.StatusElement.new("status", status, "icon_text"),
             status = elem.StatusElement.new("status", status, "icon"),
             stage = elem.StageElement.new("stage", stage, "icon", {
                 stage = {
@@ -1684,7 +1804,7 @@ function Dashboard:init(container, elements, icons, opts)
 
     -- ========================================================================
     -- BASE UI HIGHLIGHTS
-    -- ========================================================================
+    -- =======================================================================
     vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
     vim.api.nvim_set_hl(0, "SageHeaderBorder", { link = "FloatBorder", default = true })
 

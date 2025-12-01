@@ -50,7 +50,7 @@ function Pack:set_path(path)
 end
 
 function Pack:get_name()
-    return self.specs.normalize.name
+    return self.name
 end
 
 function Pack:set_active(active)
@@ -128,22 +128,34 @@ function Pack:get_status()
 end
 
 -- ---------------------------------------------------------------------------
--- Integration with vim.pack
 -- ---------------------------------------------------------------------------
+-- Integration with vim.pack
+--{
+ -- active  = boolean,           -- added via vim.pack.add() this session
+  --path    = string,            -- plugin path on disk
+ -- rev     = string,            -- git revision
+ -- branches = { ... }?,         -- optional
+  -- tags     = { ... }?,         -- optional
+--   spec    = {
+ --   src     = string,          -- git URL
+  --  name    = string,          -- plugin name
+  --  version = string|VersionRange|nil,
+  --  data    = any,             -- arbitrary user data
+ -- },
+-- }
 
 function Pack:get_native()
     local name = self:get_name()
     if name == "" then
         return nil
     end
-
     local ok, res_pack_list = pcall(vim.pack.get, { name })
     if not ok then
         vim.notify(string.format("[Sage] Pack not found for name '%s'", name), vim.log.levels.ERROR)
         return nil
     end
 
-    if type(res_pack_list) ~= "table" or #res_pack_list == 0 then
+    if type(res_pack_list[1]) ~= "table" or #res_pack_list == 0 then
         return nil
     end
 
