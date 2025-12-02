@@ -50,7 +50,7 @@ M.opts = { ---@class Sage.Config.Opts
     level = "INFO",
     max_log = 1000,
     install_timeout = 60000,
-    debounce_ms = 10,
+    debounce_ms = 200,
     footer_type = "primary",
 }
 

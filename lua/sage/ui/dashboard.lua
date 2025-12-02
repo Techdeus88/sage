@@ -748,6 +748,9 @@ function Dashboard:render_footer_prim()
     if not (self.footer_buf and vim.api.nvim_buf_is_valid(self.footer_buf)) then
         return
     end
+    if not (self.footer_win and vim.api.nvim_win_is_valid(self.footer_win)) then
+        return
+    end
 
     local win_width = vim.api.nvim_win_get_width(self.footer_win)
     local stats = self:get_stats()
@@ -1100,20 +1103,83 @@ function Dashboard:find(name)
     return self.rows_by_name[name]
 end
 
+-- ============================================================================
+-- Frame-Limited Row Rendering
+-- ============================================================================
+
+function Dashboard:update_row_immediate(name)
+    local now = vim.loop.now()
+    local min_interval = Dashboard.UPDATE_CONFIG.min_render_interval_ms
+
+    -- Check if we rendered this row recently
+    local last_render = self.last_render_times.rows[name] or 0
+    local time_since_last = now - last_render
+
+    if time_since_last < min_interval then
+        -- Too soon, will be caught in next batch
+        return
+    end
+
+    local row = self.rows_by_name[name]
+    if not row then
+        return
+    end
+
+    if not row.mark_id then
+        return
+    end
+
+    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
+    if not pos then
+        return
+    end
+
+    local line = pos[1]
+
+    -- Clear and re-render
+    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, line, line + 1)
+    self:render_row_at(line, row)
+
+    -- Update last render time
+    self.last_render_times.rows[name] = now
+end
+
+-- ============================================================================
+-- Public API: Replace existing update_row
+-- ============================================================================
+
+function Dashboard:update_row(name)
+    -- Queue the update instead of rendering immediately
+    local row = self:find(name)
+    if not row then
+        return
+    end
+
+    -- For now, just mark that this row needs updating
+    -- The actual update will happen in the batch
+    self:schedule_row_update(name, {})
+end
+
+-- ============================================================================
+-- Enhanced apply_update_to_row with change detection
+-- ============================================================================
+
 function Dashboard:apply_update_to_row(row, data)
     local elems = row.elements
+    local changed = false
+
     if data.status then
-        if elems.status then
-            elems.status:update(data.status)
+        if elems.status and elems.status:update(data.status) then
+            changed = true
         end
-        if elems.status_two then
-            elems.status_two:update(data.status)
+        if elems.status_two and elems.status_two:update(data.status) then
+            changed = true
         end
     end
 
     if data.message and data.message ~= "" then
-        if elems.message then
-            elems.message:update(data.message)
+        if elems.message and elems.message:update(data.message) then
+            changed = true
         end
     elseif data.status then
         local status_messages = {
@@ -1125,54 +1191,37 @@ function Dashboard:apply_update_to_row(row, data)
             failed = "Failed",
             disabled = "Disabled",
             lazy = "Lazy",
+            updating = "Updating…",
+            deleted = "Deleted",
         }
         local msg = status_messages[data.status]
-        if msg and elems.message then
-            elems.message:update(msg)
+        if msg and elems.message and elems.message:update(msg) then
+            changed = true
         end
     end
 
     if data.install_duration and elems.install_duration then
-        elems.install_duration:update(data.install_duration)
+        if elems.install_duration:update(data.install_duration) then
+            changed = true
+        end
     end
 
     if data.config_duration and elems.config_duration then
-        elems.config_duration:update(data.config_duration)
-    end
-
-    if data.stage and elems.stage then
-        elems.stage:update(data.stage)
-        if elems.stage_two then
-            elems.stage_two:update(data.stage)
+        if elems.config_duration:update(data.config_duration) then
+            changed = true
         end
     end
-end
 
-function Dashboard:update_row(name)
-    local row = self.rows_by_name[name]
-    if not row then
-        self:debug_log("update_row: no such row", name)
-        return
-    end
-    if not row.mark_id then
-        self:debug_log("update_row: no extmark for row", name)
-        return
+    if data.stage then
+        if elems.stage and elems.stage:update(data.stage) then
+            changed = true
+        end
+        if elems.stage_two and elems.stage_two:update(data.stage) then
+            changed = true
+        end
     end
 
-    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
-
-    if not pos then
-        self:debug_log("update_row: extmark position not found for", name)
-        return
-    end
-
-    local line = pos[1]
-    self:debug_log("update_row:", name, "line", line)
-
-    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, line, line + 1)
-
-    self:render_row_at(line, row)
-    self:update_footer_debounced()
+    return changed
 end
 
 function Dashboard:clear_content()
@@ -1373,74 +1422,7 @@ function Dashboard:adjust_color(color, factor)
 
     return string.format("#%02x%02x%02x", r, g, b)
 end
--- ============================================================================
--- Keymaps
--- ============================================================================
-function Dashboard:setup_keymaps()
-    if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
-        return
-    end
-    for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
-        vim.keymap.set("n", "i", "<Nop>", { buffer = buf, silent = true })
-        vim.keymap.set("n", "a", "<Nop>", { buffer = buf, silent = true })
-    end
 
-    for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
-        vim.keymap.set("n", "<Tab>", function()
-            self.active_tab_index = (self.active_tab_index % #self.tabs) + 1
-            self:refresh_for_tab()
-
-            if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
-                pcall(vim.api.nvim_set_current_win, self.content_win)
-            end
-        end, { buffer = buf, silent = true, desc = "Next tab" })
-
-        vim.keymap.set("n", "<S-Tab>", function()
-            self.active_tab_index = (self.active_tab_index - 2 + #self.tabs) % #self.tabs + 1
-            self:refresh_for_tab()
-
-            if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
-                pcall(vim.api.nvim_set_current_win, self.content_win)
-            end
-        end, { buffer = buf, silent = true, desc = "Previous tab" })
-    end
-
-    vim.keymap.set("n", "<A-CR>", function()
-        local cursor = vim.api.nvim_win_get_cursor(0)
-        local row = self:get_row_at_line(cursor[1])
-
-        if not row then
-            vim.notify("No pack selected", vim.log.levels.WARN)
-            return
-        end
-
-        self:display_pack_comparison(row.name)
-    end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
-
-    vim.keymap.set("n", "r", function()
-        vim.notify("Refreshing dashboard...", vim.log.levels.INFO)
-        vim.schedule(function()
-            self:close()
-            self:open()
-        end)
-    end, { buffer = self.content_buf, desc = "Refresh dashboard" })
-
-    vim.keymap.set("n", "<CR>", function()
-        local cursor = vim.api.nvim_win_get_cursor(0)
-        local row = self:get_row_at_line(cursor[1])
-
-        if not row then
-            vim.notify("No pack selected", vim.log.levels.WARN)
-            return
-        end
-
-        if row.expanded then
-            self:collapse_details(row)
-        else
-            self:expand_details(row)
-        end
-    end, { buffer = self.content_buf, desc = "Toggle pack details" })
-end
 -- ============================================================================
 -- Window Management
 -- ============================================================================
@@ -1483,8 +1465,11 @@ function Dashboard:open()
     self:setup_keymaps()
     self:setup_footer_debounced()
 end
+
 function Dashboard:close()
     self.is_open = false
+    self.is_valid = false
+
     if self.window_check_timer and not self.window_check_timer:is_closing() then
         self.window_check_timer:close()
         self.window_check_timer = nil
@@ -1496,15 +1481,11 @@ function Dashboard:close()
     end
 
     if self._footer_timer then
-        vim.fn.timer_stop(self._footer_timer)
-        self._footer_timer = nil
-    end
-
-    for _, id in ipairs(self.autocmd_ids) do
         pcall(vim.api.nvim_del_autocmd, id)
     end
     self.autocmd_ids = {}
 
+    self:cleanup_smooth_updates()
     for _, win in ipairs({ self.header_win, self.content_win, self.footer_win }) do
         if win and vim.api.nvim_win_is_valid(win) then
             pcall(vim.api.nvim_win_close, win, true)
@@ -1527,6 +1508,7 @@ function Dashboard:close()
     self.rows_by_name = {}
     self.is_open = false
 end
+
 -- ============================================================================
 -- Window Focus Management
 -- ============================================================================
@@ -1538,6 +1520,7 @@ function Dashboard:focus_content_window()
     pcall(vim.api.nvim_win_set_cursor, self.content_win, { 1, 0 })
     vim.cmd("redraw")
 end
+
 function Dashboard:focus_first_pack()
     if not (self.content_win and vim.api.nvim_win_is_valid(self.content_win)) then
         return
@@ -1560,6 +1543,7 @@ function Dashboard:focus_first_pack()
         self:focus_content_window()
     end
 end
+
 function Dashboard:is_valid()
     return self.content_buf
         and vim.api.nvim_buf_is_valid(self.content_buf)
@@ -1582,6 +1566,7 @@ function Dashboard:batch_update_lines(row_updates)
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
     self:update_footer_debounced()
 end
+
 function Dashboard:sync_all_packs()
     if not self.manager or not self.manager.packs then
         return
@@ -1605,6 +1590,1360 @@ end
 -- ============================================================================
 -- Initialization
 -- ============================================================================
+-- function Dashboard:init(container, elements, icons, opts)
+--     self.opts = opts or {}
+--     self.tabs = {
+--         { id = "all", label = "All" },
+--         { id = "loaded", label = "Loaded" },
+--         { id = "not_loaded", label = "Not Loaded" },
+--         { id = "lazy", label = "Lazy" },
+--         { id = "now", label = "Now" },
+--         { id = "later", label = "Later" },
+--         { id = "failed", label = "Failed" },
+--         { id = "disabled", label = "Disabled" },
+--     }
+--     self.active_tab_index = 1
+--     self.rows = {}
+--     self.rows_by_name = {}
+--     self.header_buf = nil
+--     self.header_win = nil
+--     self.content_buf = nil
+--     self.content_win = nil
+--     self.footer_buf = nil
+--     self.footer_win = nil
+--     self.autocmd_ids = {}
+--     self.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
+--     self.ns_content = vim.api.nvim_create_namespace("SageDashboardContent")
+--     self.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
+--     self.ns_ui = vim.api.nvim_create_namespace("SageUI")
+--     self.ns_footer = vim.api.nvim_create_namespace("SageDashboardFooter")
+--     self.ns_background = vim.api.nvim_create_namespace("SageBackground")
+--     self.ns_text = vim.api.nvim_create_namespace("SageText")
+--     self.ns_overlay = vim.api.nvim_create_namespace("SageOverlay")
+--     self.ns_status = vim.api.nvim_create_namespace("SageStatus")
+--     self.last_stats = nil
+--     self.header_height = 4
+--     self.footer_height = 6
+--     self.is_valid = false
+--     self.should_track = true
+--     self.render_timer = nil
+--     self._footer_timer = nil
+--     self.autocmd_ids = {}
+--     self.config = {
+--         lock_windows = opts.lock_windows ~= false,
+--         auto_focus = opts.auto_focus ~= false,
+--         debounce_ms = opts.debounce_ms or 50,
+--     }
+--     self.container = container
+--     self.elements = elements
+--     self.icons = icons
+--
+--     self.bus = self.container:resolve("bus")
+--     self.manager = self.container:resolve("manager")
+--     self.utils = self.container:resolve("utils")
+--     self.logger = self.container:resolve("logger")
+--
+--     self:setup_footer_debounced()
+--
+--     -- ========================================================================
+--     -- BASE UI HIGHLIGHTS
+--     -- =======================================================================
+--     vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
+--     vim.api.nvim_set_hl(0, "SageHeaderBorder", { link = "FloatBorder", default = true })
+--
+--     -- ========================================================================
+--     -- TAB HIGHLIGHTS
+--     -- ========================================================================
+--     vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
+--     vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
+--
+--     -- ========================================================================
+--     -- ROW HIGHLIGHTS (Background colors based on status)
+--     -- ========================================================================
+--     vim.api.nvim_set_hl(0, "SageRowNormal", { link = "Normal", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowAlt", { link = "CursorLine", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowHover", { link = "Visual", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowExpanded", { link = "PmenuSel", default = true })
+--
+--     -- Status-based row colors
+--     vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
+--     vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
+--     vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
+--     vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
+--     vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
+--     vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
+--     vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
+--     vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
+--     vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
+--     vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
+--     vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
+--
+--     -- ========================================================================
+--     -- BUTTON HIGHLIGHTS (Interactive elements)
+--     -- ========================================================================
+--
+--     -- Timing buttons [󰇚 12.5ms] [󰒓 8.3ms]
+--     vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
+--
+--     -- Lazy trigger buttons [󰘳 cmd: Telescope] [󰈔 ft: lua]
+--     vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
+--
+--     -- Dependency buttons [dep_name]
+--     vim.api.nvim_set_hl(0, "SageDependency", { link = "Underlined", default = true })
+--
+--     -- ====
+--     -- Sage Pack Info Details
+--     -- ====
+--     vim.api.nvim_set_hl(0, "SagePackOnlyUs", { fg = "#00ff00" })
+--     -- ========================================================================
+--     -- TRIGGER TYPE SPECIFIC HIGHLIGHTS
+--     -- ========================================================================
+--     vim.api.nvim_set_hl(0, "SageTriggerCommand", { link = "Function", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerFiletype", { link = "Type", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerEvent", { link = "Keyword", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerKeymap", { link = "Special", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerAfter", { link = "String", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerBefore", { link = "String", default = true })
+--
+--     -- ========================================================================
+--     -- FOOTER HIGHLIGHTS
+--     -- ========================================================================
+--     vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
+--     vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
+--     vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
+--
+--     -- ========================================================================
+--     -- -- COLORSCHEME AUTOCMD (Reapply on colorscheme change)
+--     -- -- ========================================================================
+--     vim.api.nvim_create_autocmd("ColorScheme", {
+--         pattern = "*",
+--         callback = function()
+--             vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
+--             vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
+--             vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
+--             vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
+--             vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
+--             vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
+--             vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
+--             vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
+--             vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
+--             vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
+--             vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
+--             vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
+--             vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
+--             vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
+--             vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
+--             vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
+--             vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
+--             vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
+--         end,
+--         desc = "Reapply Sage dashboard highlights on colorscheme change",
+--     })
+--     --
+--     -- ========================================================================
+--     -- USER COMMANDS (Don't create :Sage here to avoid circular dependency)
+--     -- ========================================================================
+--
+--     vim.api.nvim_create_user_command("SageOpen", function()
+--         local manager = self.manager
+--         local dashboard = manager.container:resolve("dashboard")
+--         dashboard:open()
+--     end, { desc = "Open Sage dashboard" })
+--
+--     vim.api.nvim_create_user_command("SageClose", function()
+--         local manager = self.manager
+--         local dashboard = manager.container:resolve("dashboard")
+--         dashboard:close()
+--     end, { desc = "Close Sage dashboard" })
+--
+--     vim.api.nvim_create_user_command("SageToggle", function()
+--         local dashboard = self.manager.container:resolve("dashboard")
+--         if dashboard.is_open then
+--             dashboard:close()
+--         else
+--             dashboard:open()
+--         end
+--     end, { desc = "Toggle Sage dashboard" })
+--
+--     vim.api.nvim_create_user_command("SageReload", function()
+--         local Loader = self.manager.container:resolve("loader")
+--         Loader:close_all()
+--         Dashboard:close()
+--         vim.notify("Sage: loaders and dashboard cleaned up.", vim.log.levels.INFO)
+--     end, { desc = "Reload Sage loaders and dashboard" })
+--
+--     vim.api.nvim_create_user_command("SageCleanup", function()
+--         vim.api.nvim_exec_autocmds("VimLeavePre", {})
+--     end, { desc = "Trigger Sage cleanup" })
+--
+--     vim.api.nvim_create_user_command("SageDebugLazy", function(c_opts)
+--         local pack_name = c_opts.args
+--         local row = Dashboard:find(pack_name)
+--
+--         if not row then
+--             vim.notify("Pack not found: " .. pack_name, vim.log.levels.ERROR)
+--             return
+--         end
+--
+--         local info = {
+--             stage = row.stage.value,
+--             has_lazy = row.lazy ~= nil,
+--             lazy_info = row.lazy and row.lazy:get_info() or "no lazy element",
+--             trigger_data = row.lazy and row.lazy.trigger_data or "none",
+--         }
+--         print(vim.inspect(info))
+--     end, { nargs = 1, desc = "Debug lazy element for a pack" })
+-- end
+--
+-- function Dashboard:debug_log(msg, sub_source)
+--     sub_source = sub_source or ""
+--     self.logger:debug("Dashboard-" .. sub_source, msg)
+-- end
+
+-- ============================================================================
+-- Multi-Selection Support
+-- ============================================================================
+
+function Dashboard:init_selection()
+    self.selected_rows = {}
+    self.selection_mode = false
+end
+
+function Dashboard:toggle_selection_mode()
+    self.selection_mode = not self.selection_mode
+    if not self.selection_mode then
+        self:clear_selection()
+    end
+    self:render_selection_indicator()
+end
+
+function Dashboard:toggle_row_selection(row)
+    if not row then
+        return
+    end
+
+    if self.selected_rows[row.name] then
+        self.selected_rows[row.name] = nil
+    else
+        self.selected_rows[row.name] = row
+    end
+
+    self:render_row_selection(row)
+end
+
+function Dashboard:clear_selection()
+    for name, _ in pairs(self.selected_rows) do
+        local row = self.rows_by_name[name]
+        if row then
+            self:render_row_selection(row)
+        end
+    end
+    self.selected_rows = {}
+end
+
+function Dashboard:get_selected_pack_names()
+    local names = {}
+    for name, _ in pairs(self.selected_rows) do
+        table.insert(names, name)
+    end
+    return names
+end
+
+function Dashboard:render_row_selection(row)
+    if not row or not row.mark_id then
+        return
+    end
+
+    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
+    if not pos or not pos[1] then
+        return
+    end
+
+    local line = pos[1]
+    local is_selected = self.selected_rows[row.name] ~= nil
+
+    -- Add visual indicator for selected rows
+    if is_selected then
+        vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_selection, line, 0, {
+            line_hl_group = "Visual",
+            priority = 100,
+        })
+    else
+        vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_selection, line, line + 1)
+    end
+end
+
+function Dashboard:render_selection_indicator()
+    if not (self.header_buf and vim.api.nvim_buf_is_valid(self.header_buf)) then
+        return
+    end
+
+    local indicator = ""
+    if self.selection_mode then
+        local count = vim.tbl_count(self.selected_rows)
+        indicator = string.format("  [SELECTION MODE: %d selected]", count)
+    end
+
+    -- Add indicator to header
+    vim.api.nvim_buf_set_extmark(self.header_buf, Dashboard.ns_ui, 0, 0, {
+        virt_text = { { indicator, "WarningMsg" } },
+        virt_text_pos = "eol",
+    })
+end
+
+-- ============================================================================
+-- Pack Operations
+-- ============================================================================
+
+function Dashboard:delete_packs(pack_names)
+    if not pack_names or #pack_names == 0 then
+        vim.notify("No packs selected for deletion", vim.log.levels.WARN)
+        return
+    end
+
+    -- Show confirmation
+    local pack_list = table.concat(pack_names, ", ")
+    local confirm_msg = string.format("Delete %d pack(s)?\n%s\n\nType 'yes' to confirm:", #pack_names, pack_list)
+
+    vim.ui.input({
+        prompt = confirm_msg,
+    }, function(input)
+        if input ~= "yes" then
+            vim.notify("Deletion cancelled", vim.log.levels.INFO)
+            return
+        end
+
+        vim.notify(string.format("Deleting %d pack(s)...", #pack_names), vim.log.levels.INFO)
+
+        for _, name in ipairs(pack_names) do
+            local ok, err = pcall(vim.pack.delete, { name })
+
+            if ok then
+                vim.notify(string.format("✓ Deleted: %s", name), vim.log.levels.INFO)
+
+                -- Update dashboard
+                local row = self:find(name)
+                if row then
+                    self:apply_update_to_row(row, {
+                        status = "deleted",
+                        message = "Deleted",
+                    })
+                    self:update_row(name)
+                end
+            else
+                vim.notify(string.format("✗ Failed to delete %s: %s", name, tostring(err)), vim.log.levels.ERROR)
+            end
+        end
+
+        self:clear_selection()
+        vim.notify("Deletion complete", vim.log.levels.INFO)
+    end)
+end
+
+function Dashboard:update_packs(pack_names, opts)
+    opts = opts or {}
+
+    if not pack_names or #pack_names == 0 then
+        vim.notify("No packs selected for update", vim.log.levels.WARN)
+        return
+    end
+
+    -- Show confirmation if not forcing
+    if not opts.force then
+        local pack_list = table.concat(pack_names, ", ")
+        local confirm_msg = string.format("Update %d pack(s)?\n%s\n\nType 'yes' to confirm:", #pack_names, pack_list)
+
+        vim.ui.input({
+            prompt = confirm_msg,
+        }, function(input)
+            if input ~= "yes" then
+                vim.notify("Update cancelled", vim.log.levels.INFO)
+                return
+            end
+
+            self:_execute_updates(pack_names, opts)
+        end)
+    else
+        self:_execute_updates(pack_names, opts)
+    end
+end
+
+function Dashboard:_execute_updates(pack_names, opts)
+    vim.notify(string.format("Updating %d pack(s)...", #pack_names), vim.log.levels.INFO)
+
+    for _, name in ipairs(pack_names) do
+        -- Update UI to show updating status
+        local row = self:find(name)
+        if row then
+            self:apply_update_to_row(row, {
+                status = "updating",
+                message = "Updating...",
+            })
+            self:update_row(name)
+        end
+
+        -- Schedule the actual update
+        vim.schedule(function()
+            local update_opts = vim.tbl_extend("force", opts, {})
+            local ok, err = pcall(vim.pack.update, { name }, update_opts)
+
+            if ok then
+                vim.notify(string.format("✓ Updated: %s", name), vim.log.levels.INFO)
+
+                if row then
+                    self:apply_update_to_row(row, {
+                        status = "loaded",
+                        message = "Updated",
+                    })
+                    self:update_row(name)
+                end
+            else
+                vim.notify(string.format("✗ Failed to update %s: %s", name, tostring(err)), vim.log.levels.ERROR)
+
+                if row then
+                    self:apply_update_to_row(row, {
+                        status = "failed",
+                        message = "Update failed",
+                    })
+                    self:update_row(name)
+                end
+            end
+        end)
+    end
+
+    self:clear_selection()
+    vim.notify("Update complete", vim.log.levels.INFO)
+end
+
+function Dashboard:update_all_packs(opts)
+    opts = opts or {}
+
+    local confirm_msg = "Update ALL packs?\n\nType 'yes' to confirm:"
+
+    vim.ui.input({
+        prompt = confirm_msg,
+    }, function(input)
+        if input ~= "yes" then
+            vim.notify("Update cancelled", vim.log.levels.INFO)
+            return
+        end
+
+        vim.notify("Updating all packs...", vim.log.levels.INFO)
+
+        -- Update all rows to show updating status
+        for _, row in ipairs(self.rows) do
+            self:apply_update_to_row(row, {
+                status = "updating",
+                message = "Updating...",
+            })
+            self:update_row(row.name)
+        end
+
+        -- Schedule the actual update
+        vim.schedule(function()
+            local ok, err = pcall(vim.pack.update, opts)
+
+            if ok then
+                vim.notify("✓ All packs updated successfully", vim.log.levels.INFO)
+
+                -- Update all rows to show completion
+                for _, row in ipairs(self.rows) do
+                    self:apply_update_to_row(row, {
+                        status = "loaded",
+                        message = "Updated",
+                    })
+                    self:update_row(row.name)
+                end
+            else
+                vim.notify(string.format("✗ Failed to update all packs: %s", tostring(err)), vim.log.levels.ERROR)
+            end
+        end)
+    end)
+end
+
+-- ============================================================================
+-- Enhanced Keymaps with Pack Operations
+-- ============================================================================
+
+function Dashboard:setup_keymaps()
+    if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
+        return
+    end
+
+    -- Disable insert mode in all buffers
+    for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
+        vim.keymap.set("n", "i", "<Nop>", { buffer = buf, silent = true })
+        vim.keymap.set("n", "a", "<Nop>", { buffer = buf, silent = true })
+    end
+
+    -- Tab navigation
+    for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
+        vim.keymap.set("n", "<Tab>", function()
+            self.active_tab_index = (self.active_tab_index % #self.tabs) + 1
+            self:refresh_for_tab()
+
+            if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
+                pcall(vim.api.nvim_set_current_win, self.content_win)
+            end
+        end, { buffer = buf, silent = true, desc = "Next tab" })
+
+        vim.keymap.set("n", "<S-Tab>", function()
+            self.active_tab_index = (self.active_tab_index - 2 + #self.tabs) % #self.tabs + 1
+            self:refresh_for_tab()
+
+            if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
+                pcall(vim.api.nvim_set_current_win, self.content_win)
+            end
+        end, { buffer = buf, silent = true, desc = "Previous tab" })
+    end
+
+    -- ========================================================================
+    -- SELECTION MODE KEYMAPS
+    -- ========================================================================
+
+    vim.keymap.set("n", "v", function()
+        self:toggle_selection_mode()
+        vim.notify(self.selection_mode and "Selection mode enabled" or "Selection mode disabled", vim.log.levels.INFO)
+    end, { buffer = self.content_buf, silent = true, desc = "Toggle selection mode" })
+
+    vim.keymap.set("n", "<Space>", function()
+        if not self.selection_mode then
+            vim.notify("Enable selection mode first (press 'v')", vim.log.levels.WARN)
+            return
+        end
+
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        local row = self:get_row_at_line(cursor[1])
+
+        if row then
+            self:toggle_row_selection(row)
+            local count = vim.tbl_count(self.selected_rows)
+            vim.notify(string.format("%d pack(s) selected", count), vim.log.levels.INFO)
+            self:render_selection_indicator()
+        end
+    end, { buffer = self.content_buf, silent = true, desc = "Toggle row selection" })
+
+    vim.keymap.set("n", "<Esc>", function()
+        if self.selection_mode then
+            self:toggle_selection_mode()
+            vim.notify("Selection cleared", vim.log.levels.INFO)
+        end
+    end, { buffer = self.content_buf, silent = true, desc = "Clear selection" })
+
+    -- ========================================================================
+    -- PACK OPERATION KEYMAPS
+    -- ========================================================================
+
+    -- Delete pack(s)
+    vim.keymap.set("n", "d", function()
+        local pack_names = {}
+
+        -- Check if in selection mode with selections
+        if self.selection_mode and vim.tbl_count(self.selected_rows) > 0 then
+            pack_names = self:get_selected_pack_names()
+        else
+            -- Single pack under cursor
+            local cursor = vim.api.nvim_win_get_cursor(0)
+            local row = self:get_row_at_line(cursor[1])
+
+            if not row then
+                vim.notify("No pack under cursor", vim.log.levels.WARN)
+                return
+            end
+
+            pack_names = { row.name }
+        end
+
+        self:delete_packs(pack_names)
+    end, { buffer = self.content_buf, silent = true, desc = "Delete pack(s)" })
+
+    -- Update pack(s)
+    vim.keymap.set("n", "u", function()
+        local pack_names = {}
+
+        -- Check if in selection mode with selections
+        if self.selection_mode and vim.tbl_count(self.selected_rows) > 0 then
+            pack_names = self:get_selected_pack_names()
+        else
+            -- Single pack under cursor
+            local cursor = vim.api.nvim_win_get_cursor(0)
+            local row = self:get_row_at_line(cursor[1])
+
+            if not row then
+                vim.notify("No pack under cursor", vim.log.levels.WARN)
+                return
+            end
+
+            pack_names = { row.name }
+        end
+
+        self:update_packs(pack_names)
+    end, { buffer = self.content_buf, silent = true, desc = "Update pack(s)" })
+
+    -- Force update pack(s)
+    vim.keymap.set("n", "U!", function()
+        local pack_names = {}
+
+        if self.selection_mode and vim.tbl_count(self.selected_rows) > 0 then
+            pack_names = self:get_selected_pack_names()
+        else
+            local cursor = vim.api.nvim_win_get_cursor(0)
+            local row = self:get_row_at_line(cursor[1])
+
+            if not row then
+                vim.notify("No pack under cursor", vim.log.levels.WARN)
+                return
+            end
+
+            pack_names = { row.name }
+        end
+
+        self:update_packs(pack_names, { force = true })
+    end, { buffer = self.content_buf, silent = true, desc = "Force update pack(s)" })
+
+    -- Update ALL packs
+    vim.keymap.set("n", "U", function()
+        self:update_all_packs()
+    end, { buffer = self.content_buf, silent = true, desc = "Update all packs" })
+
+    -- ========================================================================
+    -- EXISTING KEYMAPS
+    -- ========================================================================
+
+    vim.keymap.set("n", "<A-CR>", function()
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        local row = self:get_row_at_line(cursor[1])
+
+        if not row then
+            vim.notify("No pack selected", vim.log.levels.WARN)
+            return
+        end
+
+        self:display_pack_comparison(row.name)
+    end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
+
+    vim.keymap.set("n", "r", function()
+        vim.notify("Refreshing dashboard...", vim.log.levels.INFO)
+        vim.schedule(function()
+            self:close()
+            self:open()
+        end)
+    end, { buffer = self.content_buf, desc = "Refresh dashboard" })
+
+    vim.keymap.set("n", "<CR>", function()
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        local row = self:get_row_at_line(cursor[1])
+
+        if not row then
+            vim.notify("No pack selected", vim.log.levels.WARN)
+            return
+        end
+
+        if row.expanded then
+            self:collapse_details(row)
+        else
+            self:expand_details(row)
+        end
+    end, { buffer = self.content_buf, desc = "Toggle pack details" })
+
+    -- Show help
+    vim.keymap.set("n", "?", function()
+        self:show_help()
+    end, { buffer = self.content_buf, silent = true, desc = "Show help" })
+end
+
+-- ============================================================================
+-- Help Display
+-- ============================================================================
+
+function Dashboard:show_help()
+    local help_lines = {
+        "═══════════════════════════════════════════════════════════════",
+        "                    SAGE DASHBOARD KEYBINDINGS                  ",
+        "═══════════════════════════════════════════════════════════════",
+        "",
+        "Navigation:",
+        "  <Tab>        Next tab",
+        "  <S-Tab>      Previous tab",
+        "  <CR>         Toggle pack details",
+        "  r            Refresh dashboard",
+        "",
+        "Selection:",
+        "  v            Toggle selection mode",
+        "  <Space>      Toggle row selection (in selection mode)",
+        "  <Esc>        Clear selection / Exit selection mode",
+        "",
+        "Pack Operations:",
+        "  d            Delete selected pack(s) or pack under cursor",
+        "  u            Update selected pack(s) or pack under cursor",
+        "  U            Update ALL packs",
+        "  U!           Force update (no confirmation)",
+        "",
+        "Information:",
+        "  <A-CR>       Show pack comparison (Sage vs vim.pack)",
+        "  ?            Show this help",
+        "",
+        "Close:",
+        "  q            Close dashboard",
+        "",
+        "═══════════════════════════════════════════════════════════════",
+        "",
+        "Press any key to close this help...",
+    }
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    local width = 67
+    local height = #help_lines
+
+    local win_width = vim.o.columns
+    local win_height = vim.o.lines
+    local row = math.floor((win_height - height) / 2)
+    local col = math.floor((win_width - width) / 2)
+
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative = "editor",
+        width = width,
+        height = height,
+        row = row,
+        col = col,
+        style = "minimal",
+        border = "rounded",
+    })
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, help_lines)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+    vim.api.nvim_set_option_value("buftype", "nofile", { buf = buf })
+
+    -- Close on any key
+    vim.keymap.set("n", "<buffer>", function()
+        vim.api.nvim_win_close(win, true)
+    end, { buffer = buf, nowait = true })
+end
+
+function Dashboard:schedule_footer_update()
+    -- Cancel existing timer
+    if self.debounce_timers.footer then
+        vim.fn.timer_stop(self.debounce_timers.footer)
+        self.debounce_timers.footer = nil
+    end
+
+    -- Schedule new update
+    self.debounce_timers.footer = vim.fn.timer_start(Dashboard.UPDATE_CONFIG.footer_debounce_ms, function()
+        self:render_footer_throttled()
+        self.debounce_timers.footer = nil
+    end)
+end
+
+function Dashboard:render_footer_throttled()
+    local now = vim.loop.now()
+    local min_interval = Dashboard.UPDATE_CONFIG.min_render_interval_ms
+    local time_since_last = now - self.last_render_times.footer
+
+    if time_since_last < min_interval then
+        -- Too soon, schedule for later
+        local delay = min_interval - time_since_last
+        vim.defer_fn(function()
+            self:render_footer_immediate()
+        end, delay)
+    else
+        self:render_footer_immediate()
+    end
+end
+
+function Dashboard:render_footer_immediate()
+    if not (self.footer_buf and vim.api.nvim_buf_is_valid(self.footer_buf)) then
+        return
+    end
+    if not (self.footer_win and vim.api.nvim_win_is_valid(self.footer_win)) then
+        return
+    end
+
+    self.last_render_times.footer = vim.loop.now()
+
+    vim.api.nvim_set_option_value("modifiable", true, { buf = self.footer_buf })
+
+    -- Ensure we have at least one line
+    local line_count = vim.api.nvim_buf_line_count(self.footer_buf)
+    if line_count == 0 then
+        vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, { "" })
+    end
+
+    local total, loaded, unloaded, now, later, lazy, failed, disabled = 0, 0, 0, 0, 0, 0, 0, 0
+
+    for _, row in ipairs(self.rows) do
+        total = total + 1
+
+        local s = row.elements.status and row.elements.status.value
+        local st = row.elements.stage and row.elements.stage.value
+
+        if s == "ready" or s == "configured" or s == "loaded" or s == "lazy" then
+            loaded = loaded + 1
+        end
+        if s == "created" or s == "idle" or s == "installing" or s == "configuring" or s == "loading" then
+            unloaded = unloaded + 1
+        end
+        if s == "failed" then
+            failed = failed + 1
+        end
+        if st == "lazy" then
+            lazy = lazy + 1
+        end
+        if st == "now" then
+            now = now + 1
+        end
+        if st == "later" then
+            later = later + 1
+        end
+        if st == "disabled" then
+            disabled = disabled + 1
+        end
+    end
+
+    local pct = 0
+    if total > 0 then
+        pct = math.floor((loaded / total) * 100)
+    end
+
+    local filled = math.floor(pct / 10)
+    local empty = 10 - filled
+
+    local bar = "[" .. string.rep("■ ", filled) .. string.rep("□", empty) .. "]"
+
+    local footer_segments = {
+        { bar .. " ", "MoreMsg" },
+        { string.format("%3d%%  ", pct), "Number" },
+        {
+            string.format(
+                "Total:%d  Loaded:%d  Unloaded:%d  Failed:%d  Now:%d  Later:%d  Lazy:%d  Disabled:%d",
+                total,
+                loaded,
+                unloaded,
+                failed,
+                now,
+                later,
+                lazy,
+                disabled
+            ),
+            "Comment",
+        },
+    }
+
+    vim.api.nvim_buf_clear_namespace(self.footer_buf, Dashboard.ns_footer, 0, -1)
+
+    pcall(vim.api.nvim_buf_set_extmark, self.footer_buf, Dashboard.ns_footer, 0, 0, {
+        virt_text = footer_segments,
+        virt_text_pos = "overlay",
+        hl_mode = "combine",
+    })
+
+    vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
+end
+
+-- ============================================================================
+-- Batched Row Updates
+-- ============================================================================
+
+function Dashboard:schedule_row_update(row_name, update_data)
+    -- Add to pending updates (overwrite if exists)
+    self.pending_row_updates[row_name] = update_data
+
+    -- Schedule batch processing
+    if not self.debounce_timers.batch then
+        self.debounce_timers.batch = vim.fn.timer_start(Dashboard.UPDATE_CONFIG.batch_debounce_ms, function()
+            self:process_update_batch()
+            self.debounce_timers.batch = nil
+        end)
+    end
+end
+
+function Dashboard:process_update_batch()
+    if not self.is_valid then
+        self.pending_row_updates = {}
+        return
+    end
+
+    if self.update_batch.processing then
+        -- Already processing, will catch pending updates next cycle
+        return
+    end
+
+    -- Move pending updates to batch queue
+    local updates_to_process = {}
+    for name, data in pairs(self.pending_row_updates) do
+        table.insert(updates_to_process, {
+            name = name,
+            data = data,
+        })
+    end
+    self.pending_row_updates = {}
+
+    if #updates_to_process == 0 then
+        return
+    end
+
+    self.update_batch.processing = true
+
+    -- Process in chunks to avoid blocking
+    local chunk_size = Dashboard.UPDATE_CONFIG.max_batch_size
+    local index = 1
+
+    local function process_chunk()
+        if index > #updates_to_process then
+            self.update_batch.processing = false
+
+            -- Schedule footer update after batch completes
+            self:schedule_footer_update()
+            return
+        end
+
+        local end_index = math.min(index + chunk_size - 1, #updates_to_process)
+
+        -- Process chunk
+        vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
+
+        for i = index, end_index do
+            local update = updates_to_process[i]
+            local row = self:find(update.name)
+
+            if row then
+                self:apply_update_to_row(row, update.data)
+                self:update_row_immediate(update.name)
+            end
+        end
+
+        vim.api.nvim_set_option_value("modifiable", false, { buf = self.content_buf })
+
+        index = end_index + 1
+
+        -- Schedule next chunk
+        vim.defer_fn(process_chunk, Dashboard.UPDATE_CONFIG.batch_interval_ms)
+    end
+
+    -- Start processing
+    vim.schedule(process_chunk)
+end
+
+Dashboard.UPDATE_CONFIG = {
+    -- Debounce timing
+    footer_debounce_ms = 150, -- Footer updates (stats changes slowly)
+    row_debounce_ms = 100, -- Individual row updates
+    batch_debounce_ms = 200, -- Batch update processing
+
+    -- Batch processing
+    batch_interval_ms = 50, -- Process batch every 50ms
+    max_batch_size = 10, -- Max updates per batch cycle
+
+    -- Render throttling
+    min_render_interval_ms = 16, -- ~60fps max render rate
+}
+
+-- ============================================================================
+-- Frame-Limited Row Rendering
+-- ============================================================================
+
+function Dashboard:update_row_immediate(name)
+    local now = vim.loop.now()
+    local min_interval = Dashboard.UPDATE_CONFIG.min_render_interval_ms
+
+    -- Check if we rendered this row recently
+    local last_render = self.last_render_times.rows[name] or 0
+    local time_since_last = now - last_render
+
+    if time_since_last < min_interval then
+        -- Too soon, will be caught in next batch
+        return
+    end
+
+    local row = self.rows_by_name[name]
+    if not row then
+        return
+    end
+
+    if not row.mark_id then
+        return
+    end
+
+    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
+    if not pos then
+        return
+    end
+
+    local line = pos[1]
+
+    -- Clear and re-render
+    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, line, line + 1)
+    self:render_row_at(line, row)
+
+    -- Update last render time
+    self.last_render_times.rows[name] = now
+end
+
+-- ============================================================================
+-- Public API: Replace existing update_row
+-- ============================================================================
+
+function Dashboard:update_row(name)
+    -- Queue the update instead of rendering immediately
+    local row = self:find(name)
+    if not row then
+        return
+    end
+
+    -- For now, just mark that this row needs updating
+    -- The actual update will happen in the batch
+    self:schedule_row_update(name, {})
+end
+
+-- ============================================================================
+-- Enhanced apply_update_to_row with change detection
+-- ============================================================================
+
+function Dashboard:apply_update_to_row(row, data)
+    local elems = row.elements
+    local changed = false
+
+    if data.status then
+        if elems.status and elems.status:update(data.status) then
+            changed = true
+        end
+        if elems.status_two and elems.status_two:update(data.status) then
+            changed = true
+        end
+    end
+
+    if data.message and data.message ~= "" then
+        if elems.message and elems.message:update(data.message) then
+            changed = true
+        end
+    elseif data.status then
+        local status_messages = {
+            ready = "Loaded",
+            loaded = "Loaded",
+            installed = "Installed",
+            installing = "Installing…",
+            configuring = "Configuring…",
+            failed = "Failed",
+            disabled = "Disabled",
+            lazy = "Lazy",
+            updating = "Updating…",
+            deleted = "Deleted",
+        }
+        local msg = status_messages[data.status]
+        if msg and elems.message and elems.message:update(msg) then
+            changed = true
+        end
+    end
+
+    if data.install_duration and elems.install_duration then
+        if elems.install_duration:update(data.install_duration) then
+            changed = true
+        end
+    end
+
+    if data.config_duration and elems.config_duration then
+        if elems.config_duration:update(data.config_duration) then
+            changed = true
+        end
+    end
+
+    if data.stage then
+        if elems.stage and elems.stage:update(data.stage) then
+            changed = true
+        end
+        if elems.stage_two and elems.stage_two:update(data.stage) then
+            changed = true
+        end
+    end
+
+    return changed
+end
+
+-- ============================================================================
+-- Optimized render_footer (remove old debounce logic)
+-- ============================================================================
+
+function Dashboard:render_footer()
+    -- Now just schedules the update
+    self:schedule_footer_update()
+end
+
+-- ============================================================================
+-- Cleanup
+-- ============================================================================
+
+function Dashboard:cleanup_smooth_updates()
+    -- Stop all timers
+    for timer_type, timer_id in pairs(self.debounce_timers) do
+        if timer_id then
+            vim.fn.timer_stop(timer_id)
+        end
+    end
+
+    -- Clear state
+    self.pending_row_updates = {}
+    self.update_batch = { queue = {}, processing = false }
+    self.debounce_timers = {}
+end
+
+-- ============================================================================
+-- Alternative: Simple Exponential Smoothing for Stats
+-- ============================================================================
+
+function Dashboard:init_stats_smoothing()
+    self.smoothed_stats = {
+        total = 0,
+        loaded = 0,
+        unloaded = 0,
+        failed = 0,
+        now = 0,
+        later = 0,
+        lazy = 0,
+        disabled = 0,
+    }
+
+    -- Smoothing factor (0.0 - 1.0)
+    -- Higher = more responsive, Lower = smoother
+    self.stats_alpha = 0.3
+end
+
+function Dashboard:calculate_smoothed_stats()
+    local total, loaded, unloaded, now, later, lazy, failed, disabled = 0, 0, 0, 0, 0, 0, 0, 0
+
+    for _, row in ipairs(self.rows) do
+        total = total + 1
+        local s = row.elements.status and row.elements.status.value
+        local st = row.elements.stage and row.elements.stage.value
+
+        if s == "ready" or s == "configured" or s == "loaded" or s == "lazy" then
+            loaded = loaded + 1
+        end
+        if s == "created" or s == "idle" or s == "installing" or s == "configuring" or s == "loading" then
+            unloaded = unloaded + 1
+        end
+        if s == "failed" then
+            failed = failed + 1
+        end
+        if st == "lazy" then
+            lazy = lazy + 1
+        end
+        if st == "now" then
+            now = now + 1
+        end
+        if st == "later" then
+            later = later + 1
+        end
+        if st == "disabled" then
+            disabled = disabled + 1
+        end
+    end
+
+    -- Apply exponential smoothing
+    local alpha = self.stats_alpha
+    local s = self.smoothed_stats
+
+    s.total = math.floor(alpha * total + (1 - alpha) * s.total)
+    s.loaded = math.floor(alpha * loaded + (1 - alpha) * s.loaded)
+    s.unloaded = math.floor(alpha * unloaded + (1 - alpha) * s.unloaded)
+    s.failed = math.floor(alpha * failed + (1 - alpha) * s.failed)
+    s.now = math.floor(alpha * now + (1 - alpha) * s.now)
+    s.later = math.floor(alpha * later + (1 - alpha) * s.later)
+    s.lazy = math.floor(alpha * lazy + (1 - alpha) * s.lazy)
+    s.disabled = math.floor(alpha * disabled + (1 - alpha) * s.disabled)
+
+    return s
+end
+
+-- ============================================================================
+-- Configuration Helper
+-- ============================================================================
+
+function Dashboard:configure_smoothness(preset)
+    if preset == "fast" then
+        Dashboard.UPDATE_CONFIG.footer_debounce_ms = 100
+        Dashboard.UPDATE_CONFIG.row_debounce_ms = 50
+        Dashboard.UPDATE_CONFIG.batch_debounce_ms = 100
+        self.stats_alpha = 0.5
+    elseif preset == "smooth" then
+        Dashboard.UPDATE_CONFIG.footer_debounce_ms = 200
+        Dashboard.UPDATE_CONFIG.row_debounce_ms = 150
+        Dashboard.UPDATE_CONFIG.batch_debounce_ms = 250
+        self.stats_alpha = 0.2
+    elseif preset == "balanced" then
+        Dashboard.UPDATE_CONFIG.footer_debounce_ms = 150
+        Dashboard.UPDATE_CONFIG.row_debounce_ms = 100
+        Dashboard.UPDATE_CONFIG.batch_debounce_ms = 200
+        self.stats_alpha = 0.3
+    end
+end
+
+-- ============================================================================
+-- Frame-Limited Row Rendering
+-- ============================================================================
+
+function Dashboard:update_row_immediate(name)
+    local now = vim.loop.now()
+    local min_interval = Dashboard.UPDATE_CONFIG.min_render_interval_ms
+
+    -- Check if we rendered this row recently
+    local last_render = self.last_render_times.rows[name] or 0
+    local time_since_last = now - last_render
+
+    if time_since_last < min_interval then
+        -- Too soon, will be caught in next batch
+        return
+    end
+
+    local row = self.rows_by_name[name]
+    if not row then
+        return
+    end
+
+    if not row.mark_id then
+        return
+    end
+
+    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
+    if not pos then
+        return
+    end
+
+    local line = pos[1]
+
+    -- Clear and re-render
+    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, line, line + 1)
+    self:render_row_at(line, row)
+
+    -- Update last render time
+    self.last_render_times.rows[name] = now
+end
+
+-- ============================================================================
+-- Public API: Replace existing update_row
+-- ============================================================================
+
+function Dashboard:update_row(name)
+    -- Queue the update instead of rendering immediately
+    local row = self:find(name)
+    if not row then
+        return
+    end
+
+    -- For now, just mark that this row needs updating
+    -- The actual update will happen in the batch
+    self:schedule_row_update(name, {})
+end
+
+-- ============================================================================
+-- Enhanced apply_update_to_row with change detection
+-- ============================================================================
+
+function Dashboard:apply_update_to_row(row, data)
+    local elems = row.elements
+    local changed = false
+
+    if data.status then
+        if elems.status and elems.status:update(data.status) then
+            changed = true
+        end
+        if elems.status_two and elems.status_two:update(data.status) then
+            changed = true
+        end
+    end
+
+    if data.message and data.message ~= "" then
+        if elems.message and elems.message:update(data.message) then
+            changed = true
+        end
+    elseif data.status then
+        local status_messages = {
+            ready = "Loaded",
+            loaded = "Loaded",
+            installed = "Installed",
+            installing = "Installing…",
+            configuring = "Configuring…",
+            failed = "Failed",
+            disabled = "Disabled",
+            lazy = "Lazy",
+            updating = "Updating…",
+            deleted = "Deleted",
+        }
+        local msg = status_messages[data.status]
+        if msg and elems.message and elems.message:update(msg) then
+            changed = true
+        end
+    end
+
+    if data.install_duration and elems.install_duration then
+        if elems.install_duration:update(data.install_duration) then
+            changed = true
+        end
+    end
+
+    if data.config_duration and elems.config_duration then
+        if elems.config_duration:update(data.config_duration) then
+            changed = true
+        end
+    end
+
+    if data.stage then
+        if elems.stage and elems.stage:update(data.stage) then
+            changed = true
+        end
+        if elems.stage_two and elems.stage_two:update(data.stage) then
+            changed = true
+        end
+    end
+
+    return changed
+end
+
+-- ============================================================================
+-- Optimized render_footer (remove old debounce logic)
+-- ============================================================================
+
+function Dashboard:render_footer()
+    -- Now just schedules the update
+    self:schedule_footer_update()
+end
+
+-- ============================================================================
+-- Cleanup
+-- ============================================================================
+
+function Dashboard:cleanup_smooth_updates()
+    -- Stop all timers
+    for timer_type, timer_id in pairs(self.debounce_timers) do
+        if timer_id then
+            vim.fn.timer_stop(timer_id)
+        end
+    end
+
+    -- Clear state
+    self.pending_row_updates = {}
+    self.update_batch = { queue = {}, processing = false }
+    self.debounce_timers = {}
+end
+
+-- ============================================================================
+-- Initialization (UPDATED VERSION)
+-- ============================================================================
 function Dashboard:init(container, elements, icons, opts)
     self.opts = opts or {}
     self.tabs = {
@@ -1627,6 +2966,13 @@ function Dashboard:init(container, elements, icons, opts)
     self.footer_buf = nil
     self.footer_win = nil
     self.autocmd_ids = {}
+
+    -- ========================================================================
+    -- NEW: Initialize selection state
+    -- ========================================================================
+    self:init_selection()
+    self:init_smooth_updates()
+    -- Namespaces
     self.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
     self.ns_content = vim.api.nvim_create_namespace("SageDashboardContent")
     self.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
@@ -1636,6 +2982,12 @@ function Dashboard:init(container, elements, icons, opts)
     self.ns_text = vim.api.nvim_create_namespace("SageText")
     self.ns_overlay = vim.api.nvim_create_namespace("SageOverlay")
     self.ns_status = vim.api.nvim_create_namespace("SageStatus")
+
+    -- ========================================================================
+    -- NEW: Selection namespace
+    -- ========================================================================
+    self.ns_selection = vim.api.nvim_create_namespace("SageDashboardSelection")
+
     self.last_stats = nil
     self.header_height = 4
     self.footer_height = 6
@@ -1644,11 +2996,24 @@ function Dashboard:init(container, elements, icons, opts)
     self.render_timer = nil
     self._footer_timer = nil
     self.autocmd_ids = {}
+
     self.config = {
         lock_windows = opts.lock_windows ~= false,
         auto_focus = opts.auto_focus ~= false,
-        debounce_ms = opts.debounce_ms or 50,
+        debounce_ms = opts.debounce_ms or 200,
+        -- Debounce timing
+        footer_debounce_ms = 150, -- Footer updates (stats changes slowly)
+        row_debounce_ms = 100, -- Individual row updates
+        batch_debounce_ms = 200, -- Batch update processing
+
+        -- Batch processing
+        batch_interval_ms = 50, -- Process batch every 50ms
+        max_batch_size = 10, -- Max updates per batch cycle
+
+        -- Render throttling
+        min_render_interval_ms = 16, -- ~60fps max render rate
     }
+
     self.container = container
     self.elements = elements
     self.icons = icons
@@ -1660,27 +3025,15 @@ function Dashboard:init(container, elements, icons, opts)
 
     self:setup_footer_debounced()
 
-    -- ========================================================================
-    -- BASE UI HIGHLIGHTS
-    -- =======================================================================
+    -- Highlights (existing + new for selection)
     vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
     vim.api.nvim_set_hl(0, "SageHeaderBorder", { link = "FloatBorder", default = true })
-
-    -- ========================================================================
-    -- TAB HIGHLIGHTS
-    -- ========================================================================
     vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
     vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
-
-    -- ========================================================================
-    -- ROW HIGHLIGHTS (Background colors based on status)
-    -- ========================================================================
     vim.api.nvim_set_hl(0, "SageRowNormal", { link = "Normal", default = true })
     vim.api.nvim_set_hl(0, "SageRowAlt", { link = "CursorLine", default = true })
     vim.api.nvim_set_hl(0, "SageRowHover", { link = "Visual", default = true })
     vim.api.nvim_set_hl(0, "SageRowExpanded", { link = "PmenuSel", default = true })
-
-    -- Status-based row colors
     vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
     vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
     vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
@@ -1696,52 +3049,20 @@ function Dashboard:init(container, elements, icons, opts)
     vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
     vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
     vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
-    vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
-    vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
-    vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
-    vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
-    vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
-    vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
-    vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
-    vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
-
-    -- ========================================================================
-    -- BUTTON HIGHLIGHTS (Interactive elements)
-    -- ========================================================================
-
-    -- Timing buttons [󰇚 12.5ms] [󰒓 8.3ms]
     vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
-
-    -- Lazy trigger buttons [󰘳 cmd: Telescope] [󰈔 ft: lua]
     vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
-
-    -- Dependency buttons [dep_name]
     vim.api.nvim_set_hl(0, "SageDependency", { link = "Underlined", default = true })
-
-    -- ====
-    -- Sage Pack Info Details
-    -- ====
-    vim.api.nvim_set_hl(0, "SagePackOnlyUs", { fg = "#00ff00" })
-    -- ========================================================================
-    -- TRIGGER TYPE SPECIFIC HIGHLIGHTS
-    -- ========================================================================
     vim.api.nvim_set_hl(0, "SageTriggerCommand", { link = "Function", default = true })
     vim.api.nvim_set_hl(0, "SageTriggerFiletype", { link = "Type", default = true })
     vim.api.nvim_set_hl(0, "SageTriggerEvent", { link = "Keyword", default = true })
     vim.api.nvim_set_hl(0, "SageTriggerKeymap", { link = "Special", default = true })
     vim.api.nvim_set_hl(0, "SageTriggerAfter", { link = "String", default = true })
     vim.api.nvim_set_hl(0, "SageTriggerBefore", { link = "String", default = true })
-
-    -- ========================================================================
-    -- FOOTER HIGHLIGHTS
-    -- ========================================================================
     vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
     vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
     vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
+    vim.api.nvim_set_hl(0, "SagePackOnlyUs", { fg = "#00ff00" })
 
-    -- ========================================================================
-    -- -- COLORSCHEME AUTOCMD (Reapply on colorscheme change)
-    -- -- ========================================================================
     vim.api.nvim_create_autocmd("ColorScheme", {
         pattern = "*",
         callback = function()
@@ -1771,11 +3092,8 @@ function Dashboard:init(container, elements, icons, opts)
         end,
         desc = "Reapply Sage dashboard highlights on colorscheme change",
     })
-    --
-    -- ========================================================================
-    -- USER COMMANDS (Don't create :Sage here to avoid circular dependency)
-    -- ========================================================================
 
+    -- User commands (unchanged)
     vim.api.nvim_create_user_command("SageOpen", function()
         local manager = self.manager
         local dashboard = manager.container:resolve("dashboard")
@@ -1827,9 +3145,108 @@ function Dashboard:init(container, elements, icons, opts)
     end, { nargs = 1, desc = "Debug lazy element for a pack" })
 end
 
+function Dashboard:init_smooth_updates()
+    -- Pending update queue
+    self.pending_row_updates = {}
+    self.pending_footer_update = false
+
+    -- Debounce timers
+    self.debounce_timers = {
+        footer = nil,
+        batch = nil,
+    }
+
+    -- Last render timestamps
+    self.last_render_times = {
+        footer = 0,
+        rows = {},
+    }
+
+    -- Batch processing
+    self.update_batch = {
+        queue = {},
+        processing = false,
+    }
+
+    -- Frame limiter
+    self.frame_limiter = {
+        last_frame = 0,
+        pending_renders = {},
+    }
+end
+
 function Dashboard:debug_log(msg, sub_source)
     sub_source = sub_source or ""
     self.logger:debug("Dashboard-" .. sub_source, msg)
 end
 
 return Dashboard
+
+-- ============================================================================
+-- Keymaps
+-- ============================================================================
+-- function Dashboard:setup_keymaps()
+--     if not (self.content_buf and vim.api.nvim_buf_is_valid(self.content_buf)) then
+--         return
+--     end
+--     for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
+--         vim.keymap.set("n", "i", "<Nop>", { buffer = buf, silent = true })
+--         vim.keymap.set("n", "a", "<Nop>", { buffer = buf, silent = true })
+--     end
+--
+--     for _, buf in ipairs({ self.header_buf, self.content_buf, self.footer_buf }) do
+--         vim.keymap.set("n", "<Tab>", function()
+--             self.active_tab_index = (self.active_tab_index % #self.tabs) + 1
+--             self:refresh_for_tab()
+--
+--             if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
+--                 pcall(vim.api.nvim_set_current_win, self.content_win)
+--             end
+--         end, { buffer = buf, silent = true, desc = "Next tab" })
+--
+--         vim.keymap.set("n", "<S-Tab>", function()
+--             self.active_tab_index = (self.active_tab_index - 2 + #self.tabs) % #self.tabs + 1
+--             self:refresh_for_tab()
+--
+--             if self.content_win and vim.api.nvim_win_is_valid(self.content_win) then
+--                 pcall(vim.api.nvim_set_current_win, self.content_win)
+--             end
+--         end, { buffer = buf, silent = true, desc = "Previous tab" })
+--     end
+--
+--     vim.keymap.set("n", "<A-CR>", function()
+--         local cursor = vim.api.nvim_win_get_cursor(0)
+--         local row = self:get_row_at_line(cursor[1])
+--
+--         if not row then
+--             vim.notify("No pack selected", vim.log.levels.WARN)
+--             return
+--         end
+--
+--         self:display_pack_comparison(row.name)
+--     end, { buffer = self.content_buf, silent = true, desc = "Show pack comparison" })
+--
+--     vim.keymap.set("n", "r", function()
+--         vim.notify("Refreshing dashboard...", vim.log.levels.INFO)
+--         vim.schedule(function()
+--             self:close()
+--             self:open()
+--         end)
+--     end, { buffer = self.content_buf, desc = "Refresh dashboard" })
+--
+--     vim.keymap.set("n", "<CR>", function()
+--         local cursor = vim.api.nvim_win_get_cursor(0)
+--         local row = self:get_row_at_line(cursor[1])
+--
+--         if not row then
+--             vim.notify("No pack selected", vim.log.levels.WARN)
+--             return
+--         end
+--
+--         if row.expanded then
+--             self:collapse_details(row)
+--         else
+--             self:expand_details(row)
+--         end
+--     end, { buffer = self.content_buf, desc = "Toggle pack details" })
+-- end
