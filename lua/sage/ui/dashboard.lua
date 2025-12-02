@@ -711,7 +711,7 @@ function Dashboard:update_footer_debounced()
         vim.fn.timer_stop(self._footer_timer)
     end
 
-    local delay = (self.config and self.config.debounce_ms) or 50
+    local delay = (self.config and self.config.debounce_ms) or 10
 
     self._footer_timer = vim.fn.timer_start(delay, function()
         if self._footer_pending then
@@ -1172,7 +1172,7 @@ function Dashboard:update_row(name)
     vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, line, line + 1)
 
     self:render_row_at(line, row)
-    self:update_footer_if_changed()
+    self:update_footer_debounced()
 end
 
 function Dashboard:clear_content()

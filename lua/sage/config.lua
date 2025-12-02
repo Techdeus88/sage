@@ -24,6 +24,8 @@
 ---@field level string
 ---@field max_log number
 ---@field install_timeout number
+---@field debounce_ms number in milliseconds
+---@field footer_type string<primary|alternative>
 
 local M = {} ---@class Sage.Config
 
@@ -48,6 +50,8 @@ M.opts = { ---@class Sage.Config.Opts
     level = "INFO",
     max_log = 1000,
     install_timeout = 60000,
+    debounce_ms = 10,
+    footer_type = "primary",
 }
 
 M.stages = {
