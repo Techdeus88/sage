@@ -766,7 +766,6 @@ function Dashboard:render_footer_prim()
     local empty = bar_width - filled
     local progress_bar = string.rep("█", filled) .. string.rep("░", empty)
 
-    local footer_lines = {
         "",
         center_text(
             string.format(
@@ -786,7 +785,7 @@ function Dashboard:render_footer_prim()
                 stats.unloaded,
                 stats.lazy,
                 stats.failed,
-                stats.now,
+                stats.nkow,
                 stats.later,
                 stats.disabled,
                 total_duration
@@ -875,18 +874,18 @@ function Dashboard:render_footer_alt()
         ),
         "Comment"
 
-    local footer_segments = {
-        { " " .. bar .. " ", "MoreMsg" },
-        { percentage .. " ", "MoreMsg" },
-        { statistics .. " ", "MoreMsg" },
-    }
-
     vim.api.nvim_buf_clear_namespace(self.footer_buf, Dashboard.ns_footer, 0, -1)
+
+    local virt = {
+        { { " " .. bar .. " ", "MoreMsg" } },
+        { { percentage .. " ", "MoreMsg" } },
+        { { statistics .. " ", "MoreMsg" } },
+    }
 
     -- Set extmark on line 0 (which now exists)
     pcall(vim.api.nvim_buf_set_extmark, self.footer_buf, Dashboard.ns_footer, 0, 0, {
-        virt_text = footer_segments,
-        virt_text_pos = "overlay",
+        virt_text = virt,
+        virt_lines_above = false,
         hl_mode = "combine",
     })
 
@@ -3216,6 +3215,7 @@ return Dashboard
 --
 --     vim.keymap.set("n", "<A-CR>", function()
 --         local cursor = vim.api.nvim_win_get_cursor(0)
+--
 --         local row = self:get_row_at_line(cursor[1])
 --
 --         if not row then
