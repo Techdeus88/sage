@@ -18,6 +18,8 @@ end
 function Manager:initialize(renderer)
     self.bus = self.container:resolve("bus")
     self.utils = self.container:resolve("utils")
+    self.logger = self.container:resolve("logger")
+
     self.renderer = renderer
     self.renderer:register_listeners()
 end
@@ -30,11 +32,11 @@ function Manager:load_specs()
     local all_specs = config.get_all_specs()
 
     if #all_specs == 0 then
-        self.utils.safe_notify("No pack specs found", vim.log.levels.INFO)
+        self:log_debug("No pack specs found")
         return {}
     end
 
-    self.utils.safe_notify(string.format("Loaded %d pack specs from config", #all_specs), vim.log.levels.DEBUG)
+    self:log_debug(string.format("Loaded %d pack specs from config", #all_specs))
 
     return all_specs
 end
@@ -132,7 +134,6 @@ function Manager:install_batch(packs, on_complete)
         return p.specs.normalize
     end, packs)
 
-    print('ready to install')
     -- Install with callback
     vim.pack.add(install_specs, {
         confirm = self.opts.add_opts.confirm,
@@ -172,7 +173,6 @@ function Manager:install_batch(packs, on_complete)
 
                 Bus.emit("pack:failed", {
                     name = pack.name,
-                    pack = pack,
                     status = "failed",
                     reason = "Installation failed",
                     phase = "install",
@@ -234,7 +234,7 @@ function Manager:create_all_packs(specs)
     local delay = self.opts.render_delay or 50
 
     if #specs == 0 then
-        self.utils.safe_notify("No pack specs to create", vim.log.levels.INFO)
+        self:log_debug("No pack specs to create")
         return {}
     end
 
@@ -249,7 +249,7 @@ function Manager:create_all_packs(specs)
         local name = pack.name
 
         if seen_names[name] then
-            self.utils.safe_notify(string.format("Duplicate pack '%s' found (skipping)", name), vim.log.levels.WARN)
+            self:log_debug(string.format("Duplicate pack '%s' found (skipping)", name))
             goto continue
         end
 
@@ -286,7 +286,7 @@ function Manager:create_all_packs(specs)
 end
 
 function Manager:log_debug(message)
-    local logger = self.container:resolve("logger")
+    local logger = self.logger
     logger:debug("Manager", message)
 end
 -- ============================================================================
@@ -299,41 +299,36 @@ function Manager:run_packs()
     self:log_debug(string.format("%d Specs loaded", #all_specs))
 
     if #all_specs == 0 then
-        self.utils.safe_notify("No pack specs found, nothing to do", vim.log.levels.INFO)
+        self:log_debug("No pack specs found, nothing to do")
         return {}
     end
 
-    self.utils.safe_notify(string.format("Processing %d pack specs", #all_specs), vim.log.levels.INFO)
+    self:log_debug(string.format("Processing %d pack specs", #all_specs))
 
     local show_dashboard = should_show_dashboard(all_specs, self.opts)
 
     if show_dashboard then
         vim.defer_fn(function()
             Dashboard:open()
-            self:log_debug(string.format("Dashboard has been opened!"))
+            self:log_debug("Dashboard has been opened!")
 
             -- -- Auto-focus dashboard window
-            -- vim.defer_fn(function()
-            --     local win = Dashboard.content_win
-            --     if win and vim.api.nvim_win_is_valid(win) then
-            --         vim.api.nvim_set_current_win(win)
-            --     end
-            --       -- Re-sync from manager to be 100% sure we have all packs
-            --     -- Dashboard:sync_all_packs()
-            --     Dashboard:()
-            --     Dashboard:refresh_for_tab()
-            -- end, 50)
+            vim.defer_fn(function()
+                local win = Dashboard.content_win
+                if win and vim.api.nvim_win_is_valid(win) then
+                    vim.api.nvim_set_current_win(win)
+                end
+            end, 50)
         end, 300)
     end
 
     local all_packs = self:create_all_packs(all_specs)
-    self:log_debug(("All %d packs has been created"):format(#all_packs))
+    self:log_debug(string.format("All %d packs has been created", #all_packs))
 
     if #all_packs == 0 then
-        self.utils.safe_notify("No packs created successfully", vim.log.levels.WARN)
+        self:log_debug("No packs created successfully")
         return {}
     end
-
 
     self:install_and_classify_batch(all_packs)
 
@@ -347,7 +342,7 @@ function Manager:cleanup()
     local Bus = self.bus
     local cleanup_start = vim.loop.hrtime()
 
-    self.utils.safe_notify("Starting manager cleanup...", vim.log.levels.DEBUG)
+    self:log_debug("Starting manager cleanup...")
 
     local Loader = self.container:resolve("loader")
 
@@ -365,7 +360,7 @@ function Manager:cleanup()
         end)
         if not ok then
             table.insert(stats.errors, string.format("Loader cleanup failed: %s", tostring(err)))
-            self.utils.safe_notify(string.format("Failed to close loaders: %s", tostring(err)), vim.log.levels.WARN)
+            self:log_debug(string.format("Failed to close loaders: %s", tostring(err)))
         end
     end
 
@@ -413,24 +408,22 @@ function Manager:cleanup()
     })
 
     if #stats.errors > 0 then
-        self.utils.safe_notify(
+        self:log_debug(
             string.format(
                 "Manager cleanup completed with %d errors in %.2fms:\n%s",
                 #stats.errors,
                 cleanup_duration,
                 table.concat(stats.errors, "\n")
-            ),
-            vim.log.levels.WARN
+            )
         )
     else
-        self.utils.safe_notify(
+        self:log_debug(
             string.format(
                 "Manager cleanup successful: %d packs, %d timers (%.2fms)",
                 stats.packs_cleaned,
                 stats.timers_closed,
                 cleanup_duration
-            ),
-            vim.log.levels.DEBUG
+            )
         )
     end
 

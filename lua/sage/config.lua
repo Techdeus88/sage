@@ -73,9 +73,9 @@ local VALID_SPEC_KEYS = {
     config = true,
     depends = true,
     build = true,
+    init = true,
+    post = true,
     on = true,
-    before = true,
-    after = true,
     [1] = true, -- Allow array-style { "user/repo" }
 }
 
@@ -343,7 +343,7 @@ local function normalize_spec(spec)
     local source = spec.src or spec[1]
     local name = spec.name or extract_name(source)
     local version = spec.version
-    local disabled = spec.enabled ~= nil and spec.enabled == false
+    local disabled = not not (spec.enabled ~= nil and spec.enabled == false)
     local stage = determine_stage(spec)
     local priority = spec.priority or 100
 
@@ -489,11 +489,11 @@ local function load_specs(opts)
     end
 
     if #all_specs == 0 then
-        vim.notify("No pack specs found", vim.log.levels.INFO)
+        vim.notify("No pack specs found", vim.log.levels.DEBUG)
         return all_specs
     end
 
-    vim.notify(string.format("Loaded and normalized %d pack specs", #all_specs), vim.log.levels.INFO)
+    vim.notify(string.format("Loaded and normalized %d pack specs", #all_specs), vim.log.levels.DEBUG)
 
     return all_specs
 end

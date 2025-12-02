@@ -82,11 +82,11 @@ function c:run_autocmds()
 
             local n_spec = Pack.specs.normalize
 
-          if kind == "install" then
-            --    local confirmed = vim.fn.confirm("Install plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
-              --  if not confirmed then
+            if kind == "install" then
+                --    local confirmed = vim.fn.confirm("Install plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
+                --  if not confirmed then
                 --    error("Install cancelled for " .. n_spec.name)
-                 -- end
+                -- end
             elseif kind == "delete" then
                 local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
                 if not confirmed then
@@ -107,12 +107,11 @@ function c:run_autocmds()
 
     local hooks = function(ev)
         local name, kind = ev.data.spec.name, ev.data.kind
-         if kind == "install" or kind == "update" then
+        if kind == "install" or kind == "update" then
             local spec = ev.data.spec ---@type Sage.Spec
             if spec.data and spec.data.build ~= nil then
                 local name = spec.name
                 local Pack = manager.packs[name]
-                Pack:set_path(ev.data.path)
                 commands.build({ spec }, ev.data.path)
             end
         end
@@ -123,21 +122,21 @@ function c:run_autocmds()
     autocmd("PackChanged", {
         callback = function(ev)
             -- {
-              -- buf = 7,
-              -- data = {
-                -- active = false,
-                -- kind = "install",
-                -- path = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim",
-                -- spec = {
-                  -- name = "ashen.nvim",
-                 -- src = "https://github.com/ficcdaf/ashen.nvim"
-               -- }
-             -- },
-              -- event = "PackChanged",
-              -- file = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim",
-              -- group = 16,
-              -- id = 30,
-              -- match = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim"
+            -- buf = 7,
+            -- data = {
+            -- active = false,
+            -- kind = "install",
+            -- path = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim",
+            -- spec = {
+            -- name = "ashen.nvim",
+            -- src = "https://github.com/ficcdaf/ashen.nvim"
+            -- }
+            -- },
+            -- event = "PackChanged",
+            -- file = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim",
+            -- group = 16,
+            -- id = 30,
+            -- match = "/home/techdeus/.local/share/mini/site/pack/core/opt/ashen.nvim"
             -- }
 
             local kind = ev.data.kind
@@ -150,18 +149,14 @@ function c:run_autocmds()
                 return -- Pack not in our system, skip
             end
 
-            if kind == "update" then
+            if kind == "install" or kind == "update" then
+                Pack:merge_native_with_sage()
                 Pack:set_status("updated")
-                vim.notify(string.format("✓ Updated %s", n_spec.name), vim.log.levels.INFO)
-                bus.emit("pack:updated", {
-                    name = name,
-                    status = "updated",
-                    pack = Pack,
-                })
             end
+
             if kind == "delete" then
                 Pack:set_status("deleted")
-                vim.notify(string.format("✓ Deleted %s", n_spec.name), vim.log.levels.INFO)
+                vim.notify(string.format("✓ Deleted %s", name), vim.log.levels.INFO)
                 bus.emit("pack:deleted", {
                     name = name,
                     status = "deleted",

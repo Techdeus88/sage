@@ -138,10 +138,10 @@ function Orchestrator:init_ui()
     self.renderer = SageRenderer.new(self.bus, self.dm, SageRenderQueue)
     -- NEW: wire the strategy object
     self.dm.dashboard = self.db -- give it the UI
-    self.manager:initialize(self.renderer)
-
     -- Initialize the dashboard with options
     self.dm.dashboard:init(self.container, SageElements, SageIcons, self.opts)
+    self.manager:initialize(self.renderer)
+
 
     self.container:register("dashboard", function()
         return self.db

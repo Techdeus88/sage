@@ -76,13 +76,35 @@ end
 
 function Pack:set_branches(branches)
     if branches ~= nil then
-        self.specs.vim.branches = vim.tbl_extend("force", self.branches or {}, branches)
+        self.specs.vim.branches = branches
     end
+end
+
+function Pack:get_native_vim_pack()
+    local ok, v_spec_wrapped = pcall(vim.pack.get, { self.name })
+    local v_spec = v_spec_wrapped[1]
+    v_spec.spec = nil
+    if ok then
+        return v_spec
+    end
+end
+
+function Pack:merge_native_with_sage()
+    local v_spec = self:get_native_vim_pack()
+    self:set_path(v_spec.path)
+    self:set_branches(v_spec.branches)
+    self:set_active(v_spec.active)
+    self:set_rev(v_spec.rev)
+    self:set_tags(v_spec.tags)
+
+    -- local SageVSpec = self.specs.vim
+    -- local merged_v_spec = vim.tbl_deepextend("force", SageVSpec, v_spec)
+    -- self.specs.vim = merged_v_spec
 end
 
 function Pack:set_tags(tags)
     if tags ~= nil then
-        self.specs.vim.tags = vim.tbl_extend("force", self.tags or {}, tags)
+        self.specs.vim.tags = tags
     end
 end
 
@@ -97,14 +119,14 @@ end
 
 function Pack:get_path()
     if self.path ~= "" then
-        return self.path
+        return self.specs.vim.path
     end
     return nil
 end
 
 function Pack:set_status(status)
     local pack_name = self:get_name()
-    local curr_status = self.status
+    local curr_status = self:get_status()
     local delay_status = 300
 
     if curr_status ~= status then
@@ -117,9 +139,9 @@ function Pack:set_status(status)
                 status = status,
             })
         end
-        return true, self.status
+        return self.status
     end
-    return false, self.status
+    return self.status
 end
 
 function Pack:get_status()

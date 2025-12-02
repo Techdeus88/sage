@@ -60,9 +60,12 @@ function M.setup(opts)
     orchestrator.logger:debug("Config", string.format("Config normalized %d packages", #config.specs))
 
     -- ✅ STEP 3: Run packs safely
-    pcall(function()
+    local m_ok, err = pcall(function()
         orchestrator.manager:run_packs()
     end)
+    if not m_ok then
+        orchestrator.logger:debug(string.format("Primary method that kicks off process dailed - %s", vim.inspect(err)))
+    end
 end
 
 return M

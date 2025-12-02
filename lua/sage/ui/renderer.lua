@@ -33,9 +33,9 @@ function Renderer:on_pack_created(data)
     self.created_count = self.created_count + 1
     local index = self.created_count
 
-    -- Visible stagger: one new row every 66ms
+    -- Visible stagger: one new row every 46ms
     -- tweak this if you want faster/slower animation
-    local delay = index * 66
+    local delay = index * 28
 
     self.queue:push(function()
         vim.defer_fn(function()
@@ -81,7 +81,7 @@ function Renderer:on_pack_updated(data)
     local index = self.update_count
 
     -- Updates should feel quick but still visible
-    local delay = index * 105
+    local delay = index * 50
 
     self.queue:push(function()
         vim.defer_fn(function()
@@ -154,17 +154,16 @@ function Renderer:render_pack_updated(data)
         self.debug_log(string.format("Queued update for %s (no row yet)", data.name))
         return
     end
-
-    -- Use dashboard's apply function if available
-    if self.dm.dashboard.apply_update_to_row then
-        self.dm.dashboard:apply_update_to_row(row, data)
-    else
-        self:_apply_update_to_row(row, data)
+    if row then
+        -- Use dashboard's apply function
+        if self.dm.dashboard.apply_update_to_row then
+            self.dm.dashboard:apply_update_to_row(row, data)
+        else
+            self:_apply_update_to_row(row, data)
+        end
+        self.dm.dashboard:update_row(data.name)
+        self.debug_log(string.format("Updated pack --%s--", data.name))
     end
-
-    -- Trigger re-render via update_row which checks dirty flags
-    self.dm.dashboard:update_row(data.name)
-    self.debug_log(string.format("Updated pack --%s--", data.name))
 end
 
 -- ============================================================================
@@ -208,6 +207,7 @@ function Renderer:register_listeners()
     self.bus.on("pack:config:finish", function(data)
         self.debug_log(string.format("--Caught-- config:finish pack emit for %s", data.name))
         self:on_pack_updated(data)
+        self.dm.dashboard:resort_rows()
     end)
 
     -- Failure events

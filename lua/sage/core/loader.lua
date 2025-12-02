@@ -35,23 +35,27 @@ function Loader:load_pack(pack)
 
     pack:set_status("loading")
 
-    self.bus.emit("pack:loading", { name = name, pack = pack })
+    self.bus.emit(
+        "pack:load:start",
+        { name = name, pack = pack, status = pack:get_status(), message = "Loading started" }
+    )
 
     local ok, err = pcall(vim.cmd.packadd, name)
 
     if not ok then
         pack:set_status("failed")
         pack.error = err
-
         self.bus.emit("pack:failed", { name = name, pack = pack, error = err })
-
         return false, err
     end
 
     pack.loaded = true
     pack:set_status("loaded")
 
-    self.bus.emit("pack:loaded", { name = name, pack = pack })
+    self.bus.emit(
+        "pack:load:complete",
+        { name = name, pack = pack, status = pack:get_status(), message = "Laading completed" }
+    )
 
     self:configure_pack(pack)
 
@@ -79,7 +83,10 @@ function Loader:load_pack_immediate(pack, on_complete)
 
     pack:set_status("loading")
 
-    self.bus.emit("pack:loading", { name = name, pack = pack })
+    self.bus.emit(
+        "pack:load:start",
+        { name = name, pack = pack, status = pack:get_status(), message = "Loading starting" }
+    )
 
     local load_start = vim.loop.hrtime()
     local ok, err = pcall(vim.cmd.packadd, name)
@@ -100,12 +107,14 @@ function Loader:load_pack_immediate(pack, on_complete)
     pack.loaded = true
     pack.times = pack.times or {}
     pack.times.load_duration = string.format("%.2f", load_duration)
-    pack:set_status("loaded")
+    pack:set_status("configured")
 
-    self.bus.emit("pack:loaded", {
+    self.bus.emit("pack:load:complete", {
         name = name,
         pack = pack,
         load_duration = load_duration,
+        status = pack:get_status(),
+        message = "Loading complete",
     })
 
     self:configure_pack(pack, function(config_success)
@@ -292,7 +301,9 @@ function Loader:load_lazy_stage(packs, on_complete)
         self.bus.emit("pack:lazy", {
             name = pack:get_name(),
             pack = pack,
+            status = pack:get_status(),
             triggers = triggers,
+            message = "Lazy triggering",
         })
     end
 
@@ -446,6 +457,7 @@ function Loader:load_disabled_stage(packs, on_complete)
         self.bus.emit("pack:disabled", {
             name = pack:get_name(),
             pack = pack,
+            status = pack:get_status(),
         })
     end
 
