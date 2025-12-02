@@ -1,0 +1,22 @@
+return {
+    _all = {
+        coverage = false,
+        verbose = true,
+        lpath = "lua/?.lua;lua/?/init.lua",
+    },
+    default = {
+        tags = { "unit" },
+        ROOT = { "tests/spec/" },
+        pattern = "_spec%.lua$",
+        helper = "tests/helpers/test_helper.lua",
+    },
+    integration = {
+        tags = { "integration" },
+        ROOT = { "tests/spec/integration/" },
+        pattern = "_spec%.lua$",
+    },
+    coverage = {
+        coverage = true,
+        coverageOutputFile = "coverage.json",
+    },
+}
