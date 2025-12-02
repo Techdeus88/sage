@@ -701,7 +701,7 @@ function Dashboard:get_stats()
     return stats
 end
 
-function Dashboard:setup_debounced_footer()
+function Dashboard:setup_footer_debounced()
     self._footer_timer = nil
     self._footer_pending = false
 end
@@ -723,7 +723,28 @@ function Dashboard:update_footer_debounced()
     self._footer_pending = true
 end
 
+function Dashboard:update_footer_if_changed()
+    local footer_type = self.opts.footer_type or "normal" -- alt
+    local stats = self:get_stats()
+    local stats_str = vim.inspect(stats)
+
+    if self.last_stats ~= stats_str then
+        self.last_stats = stats_str
+        vim.api.nvim_set_option_value("modifiable", true, { buf = self.footer_buf })
+        self:render_footer()
+    end
+end
+
 function Dashboard:render_footer()
+    local footer_type = self.opts.footer_type or "primary"
+    if footer_type == "primary" then
+        self:render_footer_prim()
+    elseif footer_type == "alternative" then
+        self:render_footer_alt()
+    end
+end
+
+function Dashboard:render_footer_prim()
     if not (self.footer_buf and vim.api.nvim_buf_is_valid(self.footer_buf)) then
         return
     end
@@ -810,18 +831,7 @@ function Dashboard:render_footer()
     end
 end
 
-function Dashboard:update_footer_if_changed()
-    local stats = self:get_stats()
-    local stats_str = vim.inspect(stats)
-
-    if self.last_stats ~= stats_str then
-        self.last_stats = stats_str
-        vim.api.nvim_set_option_value("modifiable", true, self.footer_buf)
-        self:render_footer()
-    end
-end
-
-function Dashboard:render_footer()
+function Dashboard:render_footer_alt()
     if not (self.footer_buf and vim.api.nvim_buf_is_valid(self.footer_buf)) then
         return
     end
@@ -836,9 +846,6 @@ function Dashboard:render_footer()
     if line_count == 0 then
         vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, { "" })
     end
-
-    local total, loaded, unloaded, now, later, lazy, failed, disabled = 0, 0, 0, 0, 0, 0, 0, 0
-    --
     --
     local stats = self:get_stats()
     local pct = 0
@@ -866,7 +873,7 @@ function Dashboard:render_footer()
         "Comment"
 
     local footer_segments = {
-        { bar .. " ", "MoreMsg" },
+        { " " .. bar .. " ", "MoreMsg" },
         { percentage .. " ", "MoreMsg" },
         { statistics .. " ", "MoreMsg" },
     }
@@ -882,16 +889,7 @@ function Dashboard:render_footer()
 
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
 end
---
--- function Dashboard:update_footer_if_changed()
---     local stats = self:get_stats()
---     local stats_str = vim.inspect(stats)
---     if self.last_stats ~= stats_str then
---         self.last_stats = stats_str
---         vim.api.nvim_set_option_value("modifiable", true, { buf = self.footer_buf })
---         self:render_footer()
---     end
--- end
+
 -- ============================================================================
 -- Content Buffer Management
 -- ============================================================================
@@ -1483,6 +1481,7 @@ function Dashboard:open()
     self:render_header()
     self:render_footer()
     self:setup_keymaps()
+    self:setup_footer_debounced()
 end
 function Dashboard:close()
     self.is_open = false
@@ -1659,7 +1658,7 @@ function Dashboard:init(container, elements, icons, opts)
     self.utils = self.container:resolve("utils")
     self.logger = self.container:resolve("logger")
 
-    self:setup_debounced_footer()
+    self:setup_footer_debounced()
 
     -- ========================================================================
     -- BASE UI HIGHLIGHTS
