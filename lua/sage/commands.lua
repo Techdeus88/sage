@@ -117,13 +117,15 @@ local function handle_build(spec, path)
     end
 
     vim.schedule(function()
-        vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
-        local cmd = vim.split(spec.data.build, " ")
-        local response = vim.system(cmd, { cwd = path }):wait()
-        vim.notify(
-            ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
-            response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
-        )
+        local ok, err = pcall(spec.data.build, package_name, path)
+        if not ok then vim.notify(string.format("Error in build: %s", err)) end
+        -- local cmd = vim.split(spec.data.build, ",")
+        -- local response = vim.system(cmd, { cwd = path }):wait()
+        -- vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
+        -- vim.notify(
+        --     ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
+        --     response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
+        -- )
     end)
 end
 
