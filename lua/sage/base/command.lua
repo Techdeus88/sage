@@ -68,33 +68,33 @@ function c:run_autocmds()
         end,
     })
 
-    autocmd("PackChangedPre", {
-        group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
-        callback = function(event)
-            local kind = event.data.kind
-            local spec = event.data.spec
-            local name = spec.name
-            local Pack = manager.packs[name]
-
-            if not Pack then
-                return -- Pack not in our system., skip
-            end
-
-            if kind == "delete" then
-                -- local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
-                -- if not confirmed then
-                --     error("Deletion cancelled for " .. n_spec.name)
-                -- end
-                Pack:set_status("deleting")
-            elseif kind == "update" then
-                -- local confirmed = vim.fn.confirm("Update plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
-                -- if not confirmed then
-                --     error("Update cancelled for " .. n_spec.name)
-                -- end
-                Pack:set_status("updating")
-            end
-        end,
-    })
+    -- autocmd("PackChangedPre", {
+    --     group = vim.api.nvim_create_augroup("SageLoader", { clear = true }),
+    --     callback = function(event)
+    --         local kind = event.data.kind
+    --         local spec = event.data.spec
+    --         local name = spec.name
+    --         local Pack = manager.packs[name]
+    --
+    --         if not Pack then
+    --             return -- Pack not in our system., skip
+    --         end
+    --
+    --         if kind == "delete" then
+    --             -- local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
+    --             -- if not confirmed then
+    --             --     error("Deletion cancelled for " .. n_spec.name)
+    --             -- end
+    --             -- Pack:set_status("deleting")
+    --         elseif kind == "update" then
+    --             -- local confirmed = vim.fn.confirm("Update plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
+    --             -- if not confirmed then
+    --             --     error("Update cancelled for " .. n_spec.name)
+    --             -- end
+    --             -- Pack:set_status("updating")
+    --         end
+    --     end,
+    -- })
 
     local group = vim.api.nvim_create_augroup("Sage", { clear = true })
 
@@ -142,7 +142,7 @@ function c:run_autocmds()
                 return -- Pack not in our system, skip
             end
 
-            if kind == "install" or kind == "update" then
+            if kind == "update" then
                 Pack:merge_native_with_sage()
                 Pack:set_status("updated")
             end
