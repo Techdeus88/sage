@@ -80,24 +80,17 @@ function c:run_autocmds()
                 return -- Pack not in our system., skip
             end
 
-            local n_spec = Pack.specs.normalize
-
-            if kind == "install" then
-                --    local confirmed = vim.fn.confirm("Install plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
-                --  if not confirmed then
-                --    error("Install cancelled for " .. n_spec.name)
+            if kind == "delete" then
+                -- local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
+                -- if not confirmed then
+                --     error("Deletion cancelled for " .. n_spec.name)
                 -- end
-            elseif kind == "delete" then
-                local confirmed = vim.fn.confirm("Delete plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
-                if not confirmed then
-                    error("Deletion cancelled for " .. n_spec.name)
-                end
                 Pack:set_status("deleting")
             elseif kind == "update" then
-                local confirmed = vim.fn.confirm("Update plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
-                if not confirmed then
-                    error("Update cancelled for " .. n_spec.name)
-                end
+                -- local confirmed = vim.fn.confirm("Update plugin " .. n_spec.name .. "?", "&Yes\n&No", 2) == 1
+                -- if not confirmed then
+                --     error("Update cancelled for " .. n_spec.name)
+                -- end
                 Pack:set_status("updating")
             end
         end,
