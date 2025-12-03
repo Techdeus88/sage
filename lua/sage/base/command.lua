@@ -100,7 +100,7 @@ function c:run_autocmds()
 
     local hooks = function(ev)
         local name, kind = ev.data.spec.name, ev.data.kind
-        if kind == "install" or kind == "update" then
+        if kind == "update" then
             local spec = ev.data.spec ---@type Sage.Spec
             if spec.data and spec.data.build ~= nil then
                 local name = spec.name

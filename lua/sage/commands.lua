@@ -123,7 +123,6 @@ local function handle_build(spec, path)
     })
 
     vim.schedule(function()
-        print("here building")
         local ok, err = pcall(spec.data.build, package_name, path)
         if not ok then
             vim.notify(string.format("Error in build: %s", err))
@@ -168,7 +167,20 @@ end
 local M = {}
 
 M.build = function(spec, path)
-    handle_build(spec, path)
+    print("Starting build")
+    local ok, err = pcall(spec.data.build, spec.name, path)
+    if not ok then
+        vim.notify(string.format("Error for %s in build: %s", spec.name, err))
+    end
+    print("Finished build")
+    -- local cmd = vim.split(spec.data.build, ",")
+    -- local response = vim.system(cmd, { cwd = path }):wait()
+    -- vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
+    -- vim.notify(
+    --     ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
+    --     response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
+    -- )
+    -- handle_build(spec, path)
 end
 
 ---Load one or more packs by name, or all packs.
