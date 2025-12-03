@@ -107,6 +107,7 @@ local function handle_build(spec, path)
     then
         return
     end
+    print(path)
 
     local config = require("sage.config")
     local package_name = vim.fn.fnamemodify(spec.src, ":t")
@@ -116,9 +117,18 @@ local function handle_build(spec, path)
         return
     end
 
+    bus.emit("pack:install:build", {
+        name = package_name,
+        message = string.format("Building %s files", package_name),
+    })
+
     vim.schedule(function()
+        print("here building")
         local ok, err = pcall(spec.data.build, package_name, path)
-        if not ok then vim.notify(string.format("Error in build: %s", err)) end
+        if not ok then
+            vim.notify(string.format("Error in build: %s", err))
+        end
+        print("finished")
         -- local cmd = vim.split(spec.data.build, ",")
         -- local response = vim.system(cmd, { cwd = path }):wait()
         -- vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)

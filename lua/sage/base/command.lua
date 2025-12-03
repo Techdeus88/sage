@@ -105,7 +105,7 @@ function c:run_autocmds()
             if spec.data and spec.data.build ~= nil then
                 local name = spec.name
                 local Pack = manager.packs[name]
-                commands.build({ spec }, ev.data.path)
+                commands.build(spec, ev.data.path)
             end
         end
     end
