@@ -974,7 +974,7 @@ end
 -- ============================================================================
 
 function Dashboard:render_footer()
-    local footer_type = self.opts.footer_type or "primary"
+    local footer_type = self.opts.footer_type
     if footer_type == "primary" then
         self:render_footer_primary_extmarks()
     elseif footer_type == "alternative" then
@@ -1048,13 +1048,13 @@ function Dashboard:render_footer_primary_extmarks()
     local stages_centered = center_text(stages_text, win_width)
 
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 1, 0, {
-        virt_text = { { stages_centered, "SageFooterStats" } },
+        virt_text = { { stages_centered, "Error" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
     })
 
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 2, 0, {
-        virt_text = { { stats_centered, "SageFooterStats" } },
+        virt_text = { { stats_centered, "Comment" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
     })
@@ -1080,16 +1080,16 @@ function Dashboard:render_footer_alternative_extmarks()
 
     local stats = self:get_stats()
 
+    local win_width = vim.api.nvim_win_get_width(self.footer_win)
     -- Calculate progress percentage
     local pct = 0
     local loaded = math.min(stats.loaded + stats.unloaded, 100)
-    if stats.total > 0 then
-        pct = math.floor((loaded / stats.total) * 100)
-    end
+    pct = math.floor((loaded / stats.total) * 100)
 
-    -- Create progress bar (5 segments)
-    local filled = math.floor(pct / 5)
-    local empty = 5 - filled
+    -- Create progress bar (50 segments)
+    local blocks = 50
+    local filled = math.floor((pct / blocks) * blocks)
+    local empty = blocks - filled
     local bar = "[" .. string.rep("■", filled) .. string.rep("□", empty) .. "]"
 
     -- Prepare buffer
@@ -1101,10 +1101,8 @@ function Dashboard:render_footer_alternative_extmarks()
     vim.api.nvim_buf_clear_namespace(self.footer_buf, self.ns_footer, 0, -1)
 
     -- LINE 0: Progress bar with percentage
-    local line0_segments = {
-        { bar .. " ", "MoreMsg" },
-        { string.format("%2d:%2d (%d%%)%d packs", stats.loaded, stats.unloaded, pct, stats.total), "Number" },
-    }
+    local line0_center = center_text(bar, win_width)
+    local line0_segments = { { line0_center .. " ", "MoreMsg" } }
 
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 0, 0, {
         virt_text = line0_segments,
@@ -1113,30 +1111,22 @@ function Dashboard:render_footer_alternative_extmarks()
     })
 
     -- LINE 1: Detailed stats
-    local load_stats = string.format(
-        "Total:%d  Loaded:%d  Unloaded:%d  Failed:%d",
-        stats.total,
-        stats.loaded,
-        stats.unloaded,
-        stats.failed
-    )
+    local load_stats =
+        string.format("%d:%d/%s packs %d%% (loaded:unloaded/total)", stats.loaded, stats.unloaded, stats.total, pct)
 
     local stage_stats =
         string.format("Now:%d  Later:%d  Lazy:%d  Disabled:%d", stats.now, stats.later, stats.lazy, stats.disabled)
 
-    local line1_segments = {
-        { load_stats .. " ", "Comment" },
-    }
-
-    local line2_segments = {
-        { stage_stats .. " ", "Error" },
-    }
-
+    local line_1_centered = center_text(stage_stats, win_width)
+    local line1_segments = { { line_1_centered, "Error" } }
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 1, 0, {
         virt_text = line1_segments,
         virt_text_pos = "overlay",
         hl_mode = "combine",
     })
+
+    local line_2_centered = center_text(load_stats, win_width)
+    local line2_segments = { { line_2_centered, "Info" } }
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 2, 0, {
         virt_text = line2_segments,
         virt_text_pos = "overlay",
