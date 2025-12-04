@@ -98,22 +98,7 @@ end
 
 ---@param spec Sage.Spec
 ---@param path string
-local function handle_build(spec, path)
-    vim.schedule(function()
-        local ok, err = pcall(spec.data.build, package_name, path)
-        if not ok then
-            vim.notify(string.format("Error in build: %s", err))
-        end
-        print("finished")
-        -- local cmd = vim.split(spec.data.build, ",")
-        -- local response = vim.system(cmd, { cwd = path }):wait()
-        -- vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
-        -- vim.notify(
-        --     ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
-        --     response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
-        -- )
-    end)
-end
+local function handle_build(spec, path) end
 
 -- ============================================================================
 -- Load packs
@@ -152,6 +137,7 @@ M.build = function(spec, path)
     then
         return
     end
+    local bus = Container:resolve("bus")
 
     local config = require("sage.config")
     local package_name = vim.fn.fnamemodify(spec.src, ":t")
@@ -166,13 +152,16 @@ M.build = function(spec, path)
         message = string.format("Building %s...", package_name),
     })
 
-    local cmd = vim.split(spec.data.build, ",")
-    local response = vim.system(cmd, { cwd = path }):wait()
-    vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
-    vim.notify(
-        ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
-        response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
-    )
+    vim.schedule(function()
+        local cmd = vim.split(spec.data.build, ",")
+        print(vim.inspect(cmd))
+        local response = vim.system(cmd, { cwd = path }):wait()
+        vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
+        vim.notify(
+            ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
+            response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
+        )
+    end)
 
     bus.emit("pack:install:build_complete", {
         name = package_name,

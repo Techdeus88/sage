@@ -187,11 +187,15 @@ function Renderer:register_listeners()
         self:on_pack_updated(data)
     end)
 
-    self.bus.on("pack:install:build", function(data)
-        self.debug_log(string.format("--Caught-- install:build pack emit for %s", data.name))
+    self.bus.on("pack:install:build_start", function(data)
+        self.debug_log(string.format("--Caught-- install:build_start pack emit for %s", data.name))
         self:on_pack_updated(data)
     end)
 
+    self.bus.on("pack:install:build_complete", function(data)
+        self.debug_log(string.format("--Caught-- install:build_complete pack emit for %s", data.name))
+        self:on_pack_updated(data)
+    end)
     -- Load events
     self.bus.on("pack:load:start", function(data)
         self.debug_log(string.format("--Caught-- load:start pack emit for %s", data.name))
