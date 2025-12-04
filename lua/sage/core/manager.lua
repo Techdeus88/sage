@@ -27,6 +27,25 @@ end
 -- ============================================================================
 -- Load Pack Specs
 -- ============================================================================
+function Manager:load_color_schemes(all_specs, on_complete)
+    local Loader = self.container:resolve("loader")
+    local color_packs = self:create_all_packs(color_specs, function(s)
+        return s.specs.normalize.color
+    end)
+    if #color_packs == 0 then
+        vim.notify("No color packs found!", vim.log.levels.INFO, {})
+        return
+    end
+
+    self:install_batch(color_packs, function(success)
+        if success then
+            Loader:load_stage("now", color_packs, function()
+                vim.notify(string.format("Loaded %d colorschemes, #color_packs"), vim.log.levels.INFO)
+            end)
+        end
+    end)
+end
+
 function Manager:load_specs()
     local config = require("sage.config")
     local all_specs = config.get_all_specs()
@@ -298,8 +317,10 @@ end
 -- ============================================================================
 function Manager:run_packs()
     local Dashboard = self.container:resolve("dashboard")
-
     local all_specs = self:load_specs()
+
+    -- self:load_color_schemes(all_specs)
+
     self:log_debug(string.format("%d Specs loaded", #all_specs))
 
     if #all_specs == 0 then
@@ -321,6 +342,7 @@ function Manager:run_packs()
                 local win = Dashboard.content_win
                 if win and vim.api.nvim_win_is_valid(win) then
                     vim.api.nvim_set_current_win(win)
+                    vim.api.nvim_win_set_cursor(win, { 1, 0 })
                 end
             end, 50)
         end, 300)

@@ -74,6 +74,7 @@ local VALID_SPEC_KEYS = {
     priority = true,
     enabled = true,
     version = true,
+    color = true,
     config = true,
     depends = true,
     build = true,
@@ -103,6 +104,7 @@ local VALID_PACK_DATA_KEYS = {
     stage = true,
     enabled = true,
     priority = true,
+    color = true,
 }
 
 -- spec.data.on keys
@@ -378,6 +380,12 @@ local function normalize_spec(spec)
     -- Move config-related fields into data
     if source then
         n_spec.data.source = source
+    end
+
+    if spec.color ~= nil then
+        n_spec.data.color = spec.color
+    else
+        n_spec.data.color = false
     end
 
     if spec.priority then

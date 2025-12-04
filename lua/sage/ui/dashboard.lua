@@ -101,7 +101,7 @@ function Dashboard:_init_defaults()
 
     -- Dimensions
     self.header_height = 4
-    self.footer_height = 6
+    self.footer_height = 7
 
     -- Misc state
     self.last_stats = nil
@@ -1008,20 +1008,15 @@ function Dashboard:render_footer_primary_extmarks()
 
     -- Prepare buffer with proper line structure
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.footer_buf })
-    vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, { "", "", "" })
+    vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, { "", "", "", "" })
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
 
     -- Clear previous extmarks
     vim.api.nvim_buf_clear_namespace(self.footer_buf, self.ns_footer, 0, -1)
 
     -- LINE 0: Progress bar
-    local progress_text = string.format(
-        "[%d/%d] %s %.0f%%",
-        stats.loaded + stats.unloaded,
-        stats.total,
-        progress_bar,
-        progress_pct
-    )
+    local progress_text =
+        string.format("[%d/%d] %s %.0f%%", stats.loaded + stats.unloaded, stats.total, progress_bar, progress_pct)
     local progress_centered = center_text(progress_text, win_width)
 
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 0, 0, {
@@ -1032,30 +1027,43 @@ function Dashboard:render_footer_primary_extmarks()
 
     -- LINE 1: Stats
     local stats_text = string.format(
-        "Loaded: %d  •  Unloaded: %d  •  Lazy: %d  •  Failed: %d  •  Now: %d  •  Later: %d  •  Disabled: %d  •  Duration: %sms",
+        "Loaded: %d  •  Unloaded: %d  •  Failed: %d  •  Duration: %sms",
         stats.loaded,
         stats.unloaded,
-        stats.lazy,
         stats.failed,
-        stats.now,
-        stats.later,
-        stats.disabled,
         total_duration
     )
+
     local stats_centered = center_text(stats_text, win_width)
 
+    -- LINE 2: Stages
+    local stages_text = string.format(
+        "Now: %d  •  Later: %d  •  Lazy: %d  •  Disabled: %d",
+        stats.now,
+        stats.later,
+        stats.lazy,
+        stats.disabled
+    )
+
+    local stages_centered = center_text(stages_text, win_width)
+
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 1, 0, {
-        virt_text = { { stats_centered, "SageFooterStats" } },
+        virt_text = { { stages_centered, "SageFooterStats" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
     })
 
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 2, 0, {
+        virt_text = { { stats_centered, "SageFooterStats" } },
+        virt_text_pos = "overlay",
+        hl_mode = "combine",
+    })
     -- LINE 2: Help text
     local help_text =
         "Press 'r' to refresh  •  'q' to quit  •  '<CR>' to toggle details  •  '<Tab>' to switch tabs  •  '?' for help"
     local help_centered = center_text(help_text, win_width)
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 2, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 3, 0, {
         virt_text = { { help_centered, "SageFooterHelp" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -1074,9 +1082,9 @@ function Dashboard:render_footer_alternative_extmarks()
 
     -- Calculate progress percentage
     local pct = 0
-    local loaded = math.min((stats.loaded), 100)
+    local loaded = math.min(stats.loaded + stats.unloaded, 100)
     if stats.total > 0 then
-        pct = math.floor((loaded / stats.total) * 100)
+        pct = math.floor((loaded + stats.unloaded / stats.total) * 100)
     end
 
     -- Create progress bar (10 segments)
@@ -1086,7 +1094,7 @@ function Dashboard:render_footer_alternative_extmarks()
 
     -- Prepare buffer
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.footer_buf })
-    vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, { "", "" })
+    vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, { "", "", "" })
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
 
     -- Clear previous extmarks
@@ -1095,7 +1103,7 @@ function Dashboard:render_footer_alternative_extmarks()
     -- LINE 0: Progress bar with percentage
     local line0_segments = {
         { bar .. " ", "MoreMsg" },
-        { string.format("%2d:%2d (%d%%)%3d packs", stats.loaded, stats.unloaded, pct, stats.total), "Number" },
+        { string.format("%2d:%2d (%d%%)%d packs", stats.loaded, stats.unloaded, pct, stats.total), "Number" },
     }
 
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 0, 0, {
@@ -1105,24 +1113,32 @@ function Dashboard:render_footer_alternative_extmarks()
     })
 
     -- LINE 1: Detailed stats
-    local statistics = string.format(
-        "Total:%d  Loaded:%d  Unloaded:%d  Failed:%d  Now:%d  Later:%d  Lazy:%d  Disabled:%d",
+    local load_stats = string.format(
+        "Total:%d  Loaded:%d  Unloaded:%d  Failed:%d",
         stats.total,
         stats.loaded,
         stats.unloaded,
-        stats.failed,
-        stats.now,
-        stats.later,
-        stats.lazy,
-        stats.disabled
+        stats.failed
     )
 
+    local stage_stats =
+        string.format("Now:%d  Later:%d  Lazy:%d  Disabled:%d", stats.now, stats.later, stats.lazy, stats.disabled)
+
     local line1_segments = {
-        { statistics .. " ", "Comment" },
+        { load_stats .. " ", "Comment" },
+    }
+
+    local line2_segments = {
+        { stage_stats .. " ", "Error" },
     }
 
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 1, 0, {
         virt_text = line1_segments,
+        virt_text_pos = "overlay",
+        hl_mode = "combine",
+    })
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 2, 0, {
+        virt_text = line2_segments,
         virt_text_pos = "overlay",
         hl_mode = "combine",
     })
@@ -1171,22 +1187,20 @@ function Dashboard:get_stats()
         if s == "ready" or s == "configured" or s == "loaded" then
             stats.loaded = stats.loaded + 1
         end
-
-        if s == "wait_to_load" or s == "configuring" or s == "disabled" then
+        if s == "wait_to_load" or s == "configuring" or s == "disabled" or s == "lazy" then
             stats.unloaded = stats.unloaded + 1
         end
-
         if s == "failed" then
             stats.failed = stats.failed + 1
-        end
-        if st == "lazy" then
-            stats.lazy = stats.lazy + 1
         end
         if st == "now" then
             stats.now = stats.now + 1
         end
         if st == "later" then
             stats.later = stats.later + 1
+        end
+        if st == "lazy" then
+            stats.lazy = stats.lazy + 1
         end
         if st == "disabled" then
             stats.disabled = stats.disabled + 1
