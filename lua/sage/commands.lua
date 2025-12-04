@@ -163,13 +163,13 @@ M.build = function(spec, path)
         return
     end
 
-    local cmd = vim.split(spec.data.build, ",")
-    handle_build(cmd, path)
-
     bus.emit("pack:install:build_start", {
         name = package_name,
         message = string.format("Building %s...", package_name),
     })
+
+    local cmd = vim.split(spec.data.build, ",")
+    handle_build(cmd, path)
 end
 
 ---Load one or more packs by name, or all packs.

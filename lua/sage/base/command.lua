@@ -103,7 +103,6 @@ function c:run_autocmds()
         if kind == "update" then
             local spec = ev.data.spec ---@type Sage.Spec
             if spec.data and spec.data.build ~= nil then
-                local name = spec.name
                 local Pack = manager.packs[name]
                 commands.build(spec, ev.data.path)
             end
@@ -142,10 +141,10 @@ function c:run_autocmds()
                 return -- Pack not in our system, skip
             end
 
-            if kind == "update" then
-                Pack:merge_native_with_sage()
-                Pack:set_status("updated")
-            end
+            -- if kind == "update" then
+            --     Pack:merge_native_with_sage()
+            --     Pack:set_status("updated")
+            -- end
 
             if kind == "delete" then
                 Pack:set_status("deleted")
