@@ -3,7 +3,7 @@
 -- High-level helpers to build / load / update / delete packs
 -- ============================================================================
 
-local Container = require("sage.core.container").get_instance
+local Container = require("sage.core.container").get_instance()
 
 ---@private
 ---@return Sage.Spec[], string[]
