@@ -452,7 +452,9 @@ local function load_specs(opts)
         local success, file_specs = pcall(dofile, file)
 
         if success and file_specs and type(file_specs) == "table" then
-            file_specs = module_type == "SINGLE" and { file_specs } or file_specs
+            if module_type == "SINGLE" then
+                file_specs = { file_specs }
+            end
             for _, spec in ipairs(file_specs) do
                 -- Validate user spec
                 local is_valid, errors = validate_spec_fields(spec)
