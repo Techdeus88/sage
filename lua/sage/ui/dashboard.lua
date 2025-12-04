@@ -23,6 +23,247 @@ end
 local Dashboard = {}
 Dashboard.__index = Dashboard
 
+-- ============================================================================
+-- SINGLETON INSTANCE
+-- ============================================================================
+local _instance = nil
+
+function Dashboard.get_instance()
+    if not _instance then
+        _instance = setmetatable({}, Dashboard)
+        _instance:_init_defaults()
+    end
+    return _instance
+end
+
+function Dashboard.new()
+    -- Redirect to singleton
+    return Dashboard.get_instance()
+end
+
+-- ============================================================================
+-- INITIALIZATION DEFAULTS
+-- ============================================================================
+function Dashboard:_init_defaults()
+    self.is_open = false
+    self.is_valid = false
+    self.initialized = false
+
+    -- Window/Buffer management
+    self.header_buf = nil
+    self.header_win = nil
+    self.content_buf = nil
+    self.content_win = nil
+    self.footer_buf = nil
+    self.footer_win = nil
+
+    -- Tab system
+    self.tabs = {}
+    self.active_tab_index = 1
+
+    -- Pack tracking
+    self.rows = {}
+    self.rows_by_name = {}
+    self.pending_packs = nil
+
+    -- Selection system
+    self.selected_rows = {}
+    self.selection_mode = false
+
+    -- Rendering & updates
+    self.pending_row_updates = {}
+    self.debounce_timers = {}
+    self.last_render_times = { footer = 0, rows = {} }
+    self.update_batch = { queue = {}, processing = false }
+
+    -- Dependencies (set during init)
+    self.container = nil
+    self.elements = nil
+    self.icons = nil
+    self.opts = {}
+    self.config = {}
+    self.bus = nil
+    self.manager = nil
+    self.utils = nil
+    self.logger = nil
+
+    -- Namespace references
+    self.ns_rows = nil
+    self.ns_content = nil
+    self.ns_buttons = nil
+    self.ns_ui = nil
+    self.ns_footer = nil
+    self.ns_background = nil
+    self.ns_text = nil
+    self.ns_overlay = nil
+    self.ns_status = nil
+    self.ns_selection = nil
+
+    -- Dimensions
+    self.header_height = 4
+    self.footer_height = 6
+
+    -- Misc state
+    self.last_stats = nil
+    self.autocmd_ids = {}
+    self.window_check_timer = nil
+    self.render_timer = nil
+    self._footer_timer = nil
+    self._footer_pending = false
+end
+
+-- ============================================================================
+-- INITIALIZATION (CALL ONCE)
+-- ============================================================================
+function Dashboard:init(container, elements, icons, opts)
+    -- Prevent double-initialization
+    if self.initialized then
+        self.logger:warn("Dashboard", "Already initialized, skipping init()")
+        return
+    end
+
+    self.opts = opts or {}
+    self.container = container
+    self.elements = elements
+    self.icons = icons
+
+    -- Resolve dependencies
+    self.bus = self.container:resolve("bus")
+    self.manager = self.container:resolve("manager")
+    self.utils = self.container:resolve("utils")
+    self.logger = self.container:resolve("logger")
+
+    -- Initialize subsystems
+    self:_init_selection()
+    self:_init_smooth_updates()
+    self:_init_config()
+    self:_init_tabs()
+    self:_init_namespaces()
+    self:_setup_highlights()
+    self:_setup_commands()
+
+    self.initialized = true
+    self:debug_log("Dashboard initialized as singleton")
+end
+
+-- ============================================================================
+-- PRIVATE INITIALIZATION METHODS
+-- ============================================================================
+
+function Dashboard:_init_selection()
+    self.selected_rows = {}
+    self.selection_mode = false
+end
+
+function Dashboard:_init_smooth_updates()
+    self.pending_row_updates = {}
+    self.pending_footer_update = false
+
+    self.debounce_timers = {
+        footer = nil,
+        batch = nil,
+    }
+
+    self.last_render_times = {
+        footer = 0,
+        rows = {},
+    }
+
+    self.update_batch = {
+        queue = {},
+        processing = false,
+    }
+
+    self.frame_limiter = {
+        last_frame = 0,
+        pending_renders = {},
+    }
+end
+
+function Dashboard:_init_config()
+    self.config = {
+        lock_windows = self.opts.lock_windows ~= false,
+        auto_focus = self.opts.auto_focus ~= false,
+        debounce_ms = self.opts.debounce_ms or 200,
+        footer_debounce_ms = 150,
+        row_debounce_ms = 100,
+        batch_debounce_ms = 200,
+        batch_interval_ms = 50,
+        max_batch_size = 10,
+        min_render_interval_ms = 16,
+    }
+end
+
+function Dashboard:_init_tabs()
+    self.tabs = {
+        { id = "all", label = "All" },
+        { id = "loaded", label = "Loaded" },
+        { id = "not_loaded", label = "Not Loaded" },
+        { id = "lazy", label = "Lazy" },
+        { id = "now", label = "Now" },
+        { id = "later", label = "Later" },
+        { id = "failed", label = "Failed" },
+        { id = "disabled", label = "Disabled" },
+    }
+    self.active_tab_index = 1
+end
+
+function Dashboard:_init_namespaces()
+    self.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
+    self.ns_content = vim.api.nvim_create_namespace("SageDashboardContent")
+    self.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
+    self.ns_ui = vim.api.nvim_create_namespace("SageUI")
+    self.ns_footer = vim.api.nvim_create_namespace("SageDashboardFooter")
+    self.ns_background = vim.api.nvim_create_namespace("SageBackground")
+    self.ns_text = vim.api.nvim_create_namespace("SageText")
+    self.ns_overlay = vim.api.nvim_create_namespace("SageOverlay")
+    self.ns_status = vim.api.nvim_create_namespace("SageStatus")
+    self.ns_selection = vim.api.nvim_create_namespace("SageDashboardSelection")
+end
+
+function Dashboard:_setup_highlights()
+    vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
+    vim.api.nvim_set_hl(0, "SageHeaderBorder", { link = "FloatBorder", default = true })
+    vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
+    vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
+    vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
+    vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
+    vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
+    vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
+    vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
+    vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
+    vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
+
+    vim.api.nvim_create_autocmd("ColorScheme", {
+        pattern = "*",
+        callback = function()
+            self:_setup_highlights()
+        end,
+        desc = "Reapply Sage dashboard highlights on colorscheme change",
+    })
+end
+
+function Dashboard:_setup_commands()
+    vim.api.nvim_create_user_command("SageOpen", function()
+        local dashboard = Dashboard.get_instance()
+        dashboard:open()
+    end, { desc = "Open Sage dashboard" })
+
+    vim.api.nvim_create_user_command("SageClose", function()
+        local dashboard = Dashboard.get_instance()
+        dashboard:close()
+    end, { desc = "Close Sage dashboard" })
+
+    vim.api.nvim_create_user_command("SageToggle", function()
+        local dashboard = Dashboard.get_instance()
+        if dashboard.is_open then
+            dashboard:close()
+        else
+            dashboard:open()
+        end
+    end, { desc = "Toggle Sage dashboard" })
+end
+
 local STATUS_ORDER = {
     not_loaded = 1,
     loaded = 2,
@@ -704,7 +945,7 @@ function Dashboard:render_header()
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.header_buf })
     vim.api.nvim_buf_set_lines(self.header_buf, 0, -1, false, header_lines)
 
-    vim.api.nvim_buf_clear_namespace(self.header_buf, Dashboard.ns_ui, 0, -1)
+    vim.api.nvim_buf_clear_namespace(self.header_buf, self.ns_ui, 0, -1)
 
     local col = 0
     local tab_text = table.concat(tab_line, "")
@@ -716,7 +957,7 @@ function Dashboard:render_header()
 
         local hl = (i == self.active_tab_index) and "SageTabActive" or "SageTab"
 
-        vim.api.nvim_buf_set_extmark(self.header_buf, Dashboard.ns_ui, 1, padding + col, {
+        vim.api.nvim_buf_set_extmark(self.header_buf, self.ns_ui, 1, padding + col, {
             end_col = padding + col + #text,
             hl_group = hl,
             hl_mode = "combine",
@@ -771,7 +1012,7 @@ function Dashboard:render_footer_primary_extmarks()
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
 
     -- Clear previous extmarks
-    vim.api.nvim_buf_clear_namespace(self.footer_buf, Dashboard.ns_footer, 0, -1)
+    vim.api.nvim_buf_clear_namespace(self.footer_buf, self.ns_footer, 0, -1)
 
     -- LINE 0: Progress bar
     local progress_text = string.format(
@@ -783,7 +1024,7 @@ function Dashboard:render_footer_primary_extmarks()
     )
     local progress_centered = center_text(progress_text, win_width)
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, Dashboard.ns_footer, 0, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 0, 0, {
         virt_text = { { progress_centered, "SageFooterProgress" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -803,7 +1044,7 @@ function Dashboard:render_footer_primary_extmarks()
     )
     local stats_centered = center_text(stats_text, win_width)
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, Dashboard.ns_footer, 1, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 1, 0, {
         virt_text = { { stats_centered, "SageFooterStats" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -814,7 +1055,7 @@ function Dashboard:render_footer_primary_extmarks()
         "Press 'r' to refresh  •  'q' to quit  •  '<CR>' to toggle details  •  '<Tab>' to switch tabs  •  '?' for help"
     local help_centered = center_text(help_text, win_width)
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, Dashboard.ns_footer, 2, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 2, 0, {
         virt_text = { { help_centered, "SageFooterHelp" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -849,7 +1090,7 @@ function Dashboard:render_footer_alternative_extmarks()
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
 
     -- Clear previous extmarks
-    vim.api.nvim_buf_clear_namespace(self.footer_buf, Dashboard.ns_footer, 0, -1)
+    vim.api.nvim_buf_clear_namespace(self.footer_buf, self.ns_footer, 0, -1)
 
     -- LINE 0: Progress bar with percentage
     local line0_segments = {
@@ -857,7 +1098,7 @@ function Dashboard:render_footer_alternative_extmarks()
         { string.format("%2d:%2d (%d%%)%3d packs", stats.loaded, stats.unloaded, pct, stats.total), "Number" },
     }
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, Dashboard.ns_footer, 0, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 0, 0, {
         virt_text = line0_segments,
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -880,7 +1121,7 @@ function Dashboard:render_footer_alternative_extmarks()
         { statistics .. " ", "Comment" },
     }
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, Dashboard.ns_footer, 1, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 1, 0, {
         virt_text = line1_segments,
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -1039,7 +1280,7 @@ function Dashboard:render_row_at(line, row)
     end
 
     -- Place the extmark with virt_text
-    vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_content, line, 0, {
+    vim.api.nvim_buf_set_extmark(self.content_buf, self.ns_content, line, 0, {
         virt_text = segments,
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -1047,14 +1288,14 @@ function Dashboard:render_row_at(line, row)
 end
 
 function Dashboard:clear_content()
-    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, 0, -1)
+    vim.api.nvim_buf_clear_namespace(self.content_buf, self.ns_content, 0, -1)
 end
 
 function Dashboard:refresh()
     self:clear_content()
     for _, row in ipairs(self.rows) do
         if row.mark_id then
-            local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
+            local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, self.ns_rows, row.mark_id, {})
             if pos and pos[1] then
                 self:render_row_at(pos[1], row)
             end
@@ -1106,8 +1347,8 @@ function Dashboard:refresh_for_tab()
         return false
     end
 
-    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_rows, 0, -1)
-    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, 0, -1)
+    vim.api.nvim_buf_clear_namespace(self.content_buf, self.ns_rows, 0, -1)
+    vim.api.nvim_buf_clear_namespace(self.content_buf, self.ns_content, 0, -1)
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.content_buf })
     vim.api.nvim_buf_set_lines(self.content_buf, 0, -1, false, {})
 
@@ -1122,7 +1363,7 @@ function Dashboard:refresh_for_tab()
 
             row.mark_id = vim.api.nvim_buf_set_extmark(
                 self.content_buf,
-                Dashboard.ns_rows,
+                self.ns_rows,
                 line,
                 0,
                 { id = row.mark_id, right_gravity = false }
@@ -1138,7 +1379,7 @@ function Dashboard:refresh_for_tab()
 
                     det.mark_id = vim.api.nvim_buf_set_extmark(
                         self.content_buf,
-                        Dashboard.ns_rows,
+                        self.ns_rows,
                         line,
                         0,
                         { id = det.mark_id, right_gravity = false }
@@ -1207,10 +1448,10 @@ function Dashboard:rebuild_display()
         self:_ensure_lines(line)
 
         if row.mark_id then
-            pcall(vim.api.nvim_buf_del_extmark, self.content_buf, Dashboard.ns_rows, row.mark_id)
+            pcall(vim.api.nvim_buf_del_extmark, self.content_buf, self.ns_rows, row.mark_id)
         end
 
-        row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
+        row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, self.ns_rows, line, 0, {
             right_gravity = true,
         })
 
@@ -1262,7 +1503,7 @@ function Dashboard:add_pack(pack)
     local line = vim.api.nvim_buf_line_count(self.content_buf)
     vim.api.nvim_buf_set_lines(self.content_buf, line, line, false, { "" })
 
-    row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_rows, line, 0, {
+    row.mark_id = vim.api.nvim_buf_set_extmark(self.content_buf, self.ns_rows, line, 0, {
         right_gravity = false,
     })
 
@@ -1503,7 +1744,7 @@ function Dashboard:render_row_selection(row)
         return
     end
 
-    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
+    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, self.ns_rows, row.mark_id, {})
     if not pos or not pos[1] then
         return
     end
@@ -1512,12 +1753,12 @@ function Dashboard:render_row_selection(row)
     local is_selected = self.selected_rows[row.name] ~= nil
 
     if is_selected then
-        vim.api.nvim_buf_set_extmark(self.content_buf, Dashboard.ns_selection, line, 0, {
+        vim.api.nvim_buf_set_extmark(self.content_buf, self.ns_selection, line, 0, {
             line_hl_group = "Visual",
             priority = 100,
         })
     else
-        vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_selection, line, line + 1)
+        vim.api.nvim_buf_clear_namespace(self.content_buf, self.ns_selection, line, line + 1)
     end
 end
 
@@ -1532,7 +1773,7 @@ function Dashboard:render_selection_indicator()
         indicator = string.format("  [SELECTION MODE: %d selected]", count)
     end
 
-    vim.api.nvim_buf_set_extmark(self.header_buf, Dashboard.ns_ui, 0, 0, {
+    vim.api.nvim_buf_set_extmark(self.header_buf, self.ns_ui, 0, 0, {
         virt_text = { { indicator, "WarningMsg" } },
         virt_text_pos = "eol",
     })
@@ -1793,14 +2034,14 @@ function Dashboard:update_row_immediate(name)
         return
     end
 
-    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
+    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, self.ns_rows, row.mark_id, {})
     if not pos then
         return
     end
 
     local line = pos[1]
 
-    vim.api.nvim_buf_clear_namespace(self.content_buf, Dashboard.ns_content, line, line + 1)
+    vim.api.nvim_buf_clear_namespace(self.content_buf, self.ns_content, line, line + 1)
     self:render_row_at(line, row)
 
     self.last_render_times.rows[name] = now
@@ -2174,195 +2415,195 @@ end
 -- Initialization
 -- ============================================================================
 
-function Dashboard:init(container, elements, icons, opts)
-    self.opts = opts or {}
-    self.tabs = {
-        { id = "all", label = "All" },
-        { id = "loaded", label = "Loaded" },
-        { id = "not_loaded", label = "Not Loaded" },
-        { id = "lazy", label = "Lazy" },
-        { id = "now", label = "Now" },
-        { id = "later", label = "Later" },
-        { id = "failed", label = "Failed" },
-        { id = "disabled", label = "Disabled" },
-    }
-    self.active_tab_index = 1
-    self.rows = {}
-    self.rows_by_name = {}
-    self.header_buf = nil
-    self.header_win = nil
-    self.content_buf = nil
-    self.content_win = nil
-    self.footer_buf = nil
-    self.footer_win = nil
-    self.autocmd_ids = {}
-
-    self:init_selection()
-    self:init_smooth_updates()
-
-    self.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
-    self.ns_content = vim.api.nvim_create_namespace("SageDashboardContent")
-    self.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
-    self.ns_ui = vim.api.nvim_create_namespace("SageUI")
-    self.ns_footer = vim.api.nvim_create_namespace("SageDashboardFooter")
-    self.ns_background = vim.api.nvim_create_namespace("SageBackground")
-    self.ns_text = vim.api.nvim_create_namespace("SageText")
-    self.ns_overlay = vim.api.nvim_create_namespace("SageOverlay")
-    self.ns_status = vim.api.nvim_create_namespace("SageStatus")
-    self.ns_selection = vim.api.nvim_create_namespace("SageDashboardSelection")
-
-    self.last_stats = nil
-    self.header_height = 4
-    self.footer_height = 6
-    self.is_valid = false
-    self.should_track = true
-    self.render_timer = nil
-    self._footer_timer = nil
-    self.autocmd_ids = {}
-
-    self.config = {
-        lock_windows = opts.lock_windows ~= false,
-        auto_focus = opts.auto_focus ~= false,
-        debounce_ms = opts.debounce_ms or 200,
-        footer_debounce_ms = 150,
-        row_debounce_ms = 100,
-        batch_debounce_ms = 200,
-        batch_interval_ms = 50,
-        max_batch_size = 10,
-        min_render_interval_ms = 16,
-    }
-
-    self.container = container
-    self.elements = elements
-    self.icons = icons
-
-    self.bus = self.container:resolve("bus")
-    self.manager = self.container:resolve("manager")
-    self.utils = self.container:resolve("utils")
-    self.logger = self.container:resolve("logger")
-
-    self:setup_footer_debounced()
-
-    -- Highlights
-    vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
-    vim.api.nvim_set_hl(0, "SageHeaderBorder", { link = "FloatBorder", default = true })
-    vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
-    vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
-    vim.api.nvim_set_hl(0, "SageRowNormal", { link = "Normal", default = true })
-    vim.api.nvim_set_hl(0, "SageRowAlt", { link = "CursorLine", default = true })
-    vim.api.nvim_set_hl(0, "SageRowHover", { link = "Visual", default = true })
-    vim.api.nvim_set_hl(0, "SageRowExpanded", { link = "PmenuSel", default = true })
-    vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
-    vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
-    vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
-    vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
-    vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
-    vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
-    vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
-    vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
-    vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
-    vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
-    vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
-    vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
-    vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
-    vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
-    vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
-    vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
-    vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
-    vim.api.nvim_set_hl(0, "SageDependency", { link = "Underlined", default = true })
-    vim.api.nvim_set_hl(0, "SageTriggerCommand", { link = "Function", default = true })
-    vim.api.nvim_set_hl(0, "SageTriggerFiletype", { link = "Type", default = true })
-    vim.api.nvim_set_hl(0, "SageTriggerEvent", { link = "Keyword", default = true })
-    vim.api.nvim_set_hl(0, "SageTriggerKeymap", { link = "Special", default = true })
-    vim.api.nvim_set_hl(0, "SageTriggerAfter", { link = "String", default = true })
-    vim.api.nvim_set_hl(0, "SageTriggerBefore", { link = "String", default = true })
-    vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
-    vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
-    vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
-    vim.api.nvim_set_hl(0, "SagePackOnlyUs", { fg = "#00ff00" })
-
-    vim.api.nvim_create_autocmd("ColorScheme", {
-        pattern = "*",
-        callback = function()
-            vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
-            vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
-            vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
-            vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
-            vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
-            vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
-            vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
-            vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
-            vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
-            vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
-            vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
-            vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
-            vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
-            vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
-            vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
-            vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
-            vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
-            vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
-            vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
-            vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
-            vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
-            vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
-            vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
-        end,
-        desc = "Reapply Sage dashboard highlights on colorscheme change",
-    })
-
-    -- User commands
-    vim.api.nvim_create_user_command("SageOpen", function()
-        local manager = self.manager
-        local dashboard = manager.container:resolve("dashboard")
-        dashboard:open()
-    end, { desc = "Open Sage dashboard" })
-
-    vim.api.nvim_create_user_command("SageClose", function()
-        local manager = self.manager
-        local dashboard = manager.container:resolve("dashboard")
-        dashboard:close()
-    end, { desc = "Close Sage dashboard" })
-
-    vim.api.nvim_create_user_command("SageToggle", function()
-        local dashboard = self.manager.container:resolve("dashboard")
-        if dashboard.is_open then
-            dashboard:close()
-        else
-            dashboard:open()
-        end
-    end, { desc = "Toggle Sage dashboard" })
-
-    vim.api.nvim_create_user_command("SageReload", function()
-        local Loader = self.manager.container:resolve("loader")
-        Loader:close_all()
-        Dashboard:close()
-        vim.notify("Sage: loaders and dashboard cleaned up.", vim.log.levels.INFO)
-    end, { desc = "Reload Sage loaders and dashboard" })
-
-    vim.api.nvim_create_user_command("SageCleanup", function()
-        vim.api.nvim_exec_autocmds("VimLeavePre", {})
-    end, { desc = "Trigger Sage cleanup" })
-
-    vim.api.nvim_create_user_command("SageDebugLazy", function(c_opts)
-        local pack_name = c_opts.args
-        local row = Dashboard:find(pack_name)
-
-        if not row then
-            vim.notify("Pack not found: " .. pack_name, vim.log.levels.ERROR)
-            return
-        end
-
-        local info = {
-            stage = row.stage.value,
-            has_lazy = row.lazy ~= nil,
-            lazy_info = row.lazy and row.lazy:get_info() or "no lazy element",
-            trigger_data = row.lazy and row.lazy.trigger_data or "none",
-        }
-        print(vim.inspect(info))
-    end, { nargs = 1, desc = "Debug lazy element for a pack" })
-end
-
+-- function Dashboard:init(container, elements, icons, opts)
+--     self.opts = opts or {}
+--     self.tabs = {
+--         { id = "all", label = "All" },
+--         { id = "loaded", label = "Loaded" },
+--         { id = "not_loaded", label = "Not Loaded" },
+--         { id = "lazy", label = "Lazy" },
+--         { id = "now", label = "Now" },
+--         { id = "later", label = "Later" },
+--         { id = "failed", label = "Failed" },
+--         { id = "disabled", label = "Disabled" },
+--     }
+--     self.active_tab_index = 1
+--     self.rows = {}
+--     self.rows_by_name = {}
+--     self.header_buf = nil
+--     self.header_win = nil
+--     self.content_buf = nil
+--     self.content_win = nil
+--     self.footer_buf = nil
+--     self.footer_win = nil
+--     self.autocmd_ids = {}
+--
+--     self:init_selection()
+--     self:init_smooth_updates()
+--
+--     self.ns_rows = vim.api.nvim_create_namespace("SageDashboardRows")
+--     self.ns_content = vim.api.nvim_create_namespace("SageDashboardContent")
+--     self.ns_buttons = vim.api.nvim_create_namespace("SageDashboardButtons")
+--     self.ns_ui = vim.api.nvim_create_namespace("SageUI")
+--     self.ns_footer = vim.api.nvim_create_namespace("SageDashboardFooter")
+--     self.ns_background = vim.api.nvim_create_namespace("SageBackground")
+--     self.ns_text = vim.api.nvim_create_namespace("SageText")
+--     self.ns_overlay = vim.api.nvim_create_namespace("SageOverlay")
+--     self.ns_status = vim.api.nvim_create_namespace("SageStatus")
+--     self.ns_selection = vim.api.nvim_create_namespace("SageDashboardSelection")
+--
+--     self.last_stats = nil
+--     self.header_height = 4
+--     self.footer_height = 6
+--     self.is_valid = false
+--     self.should_track = true
+--     self.render_timer = nil
+--     self._footer_timer = nil
+--     self.autocmd_ids = {}
+--
+--     self.config = {
+--         lock_windows = opts.lock_windows ~= false,
+--         auto_focus = opts.auto_focus ~= false,
+--         debounce_ms = opts.debounce_ms or 200,
+--         footer_debounce_ms = 150,
+--         row_debounce_ms = 100,
+--         batch_debounce_ms = 200,
+--         batch_interval_ms = 50,
+--         max_batch_size = 10,
+--         min_render_interval_ms = 16,
+--     }
+--
+--     self.container = container
+--     self.elements = elements
+--     self.icons = icons
+--
+--     self.bus = self.container:resolve("bus")
+--     self.manager = self.container:resolve("manager")
+--     self.utils = self.container:resolve("utils")
+--     self.logger = self.container:resolve("logger")
+--
+--     self:setup_footer_debounced()
+--
+--     -- Highlights
+--     vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
+--     vim.api.nvim_set_hl(0, "SageHeaderBorder", { link = "FloatBorder", default = true })
+--     vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
+--     vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowNormal", { link = "Normal", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowAlt", { link = "CursorLine", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowHover", { link = "Visual", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowExpanded", { link = "PmenuSel", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
+--     vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
+--     vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
+--     vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
+--     vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
+--     vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
+--     vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
+--     vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
+--     vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
+--     vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
+--     vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
+--     vim.api.nvim_set_hl(0, "SageDependency", { link = "Underlined", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerCommand", { link = "Function", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerFiletype", { link = "Type", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerEvent", { link = "Keyword", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerKeymap", { link = "Special", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerAfter", { link = "String", default = true })
+--     vim.api.nvim_set_hl(0, "SageTriggerBefore", { link = "String", default = true })
+--     vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
+--     vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
+--     vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
+--     vim.api.nvim_set_hl(0, "SagePackOnlyUs", { fg = "#00ff00" })
+--
+--     vim.api.nvim_create_autocmd("ColorScheme", {
+--         pattern = "*",
+--         callback = function()
+--             vim.api.nvim_set_hl(0, "SageUIWindow", { link = "NormalFloat", default = true })
+--             vim.api.nvim_set_hl(0, "SageTabActive", { link = "TabLineSel", default = true })
+--             vim.api.nvim_set_hl(0, "SageTab", { link = "TabLine", default = true })
+--             vim.api.nvim_set_hl(0, "SageTaskProgress", { link = "DiagnosticInfo", default = true })
+--             vim.api.nvim_set_hl(0, "SageButton", { link = "Underlined", default = true })
+--             vim.api.nvim_set_hl(0, "SageLazyTrigger", { link = "DiagnosticInfo", default = true })
+--             vim.api.nvim_set_hl(0, "SageMessage", { link = "DiagnosticHint", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowLoaded", { link = "DiagnosticOk", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowFailed", { link = "DiagnosticError", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowLazy", { link = "DiagnosticInfo", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowWaiting", { link = "DiagnosticWarn", default = true })
+--             vim.api.nvim_set_hl(0, "SageRowDisabled", { link = "Comment", default = true })
+--             vim.api.nvim_set_hl(0, "SageStatusCreated", { fg = "#7aa2f7", italic = true })
+--             vim.api.nvim_set_hl(0, "SageStatusLoaded", { fg = "#9ece6a", bold = true })
+--             vim.api.nvim_set_hl(0, "SageStatusFailed", { fg = "#f7768e", underline = true })
+--             vim.api.nvim_set_hl(0, "SageLazyBracket", { fg = "#bb9af7" })
+--             vim.api.nvim_set_hl(0, "SageLazyIcon", { fg = "#bb9af7" })
+--             vim.api.nvim_set_hl(0, "SageLazyLabel", { fg = "#bb9af7" })
+--             vim.api.nvim_set_hl(0, "SageLazyValue", { fg = "#bb9af7" })
+--             vim.api.nvim_set_hl(0, "SageLink", { fg = "#6495ed", underline = true })
+--             vim.api.nvim_set_hl(0, "SageFooterProgress", { link = "Title", default = true })
+--             vim.api.nvim_set_hl(0, "SageFooterStats", { link = "String", default = true })
+--             vim.api.nvim_set_hl(0, "SageFooterHelp", { link = "Comment", default = true })
+--         end,
+--         desc = "Reapply Sage dashboard highlights on colorscheme change",
+--     })
+--
+--     -- User commands
+--     vim.api.nvim_create_user_command("SageOpen", function()
+--         local manager = self.manager
+--         local dashboard = manager.container:resolve("dashboard")
+--         dashboard:open()
+--     end, { desc = "Open Sage dashboard" })
+--
+--     vim.api.nvim_create_user_command("SageClose", function()
+--         local manager = self.manager
+--         local dashboard = manager.container:resolve("dashboard")
+--         dashboard:close()
+--     end, { desc = "Close Sage dashboard" })
+--
+--     vim.api.nvim_create_user_command("SageToggle", function()
+--         local dashboard = self.manager.container:resolve("dashboard")
+--         if dashboard.is_open then
+--             dashboard:close()
+--         else
+--             dashboard:open()
+--         end
+--     end, { desc = "Toggle Sage dashboard" })
+--
+--     vim.api.nvim_create_user_command("SageReload", function()
+--         local Loader = self.manager.container:resolve("loader")
+--         Loader:close_all()
+--         Dashboard:close()
+--         vim.notify("Sage: loaders and dashboard cleaned up.", vim.log.levels.INFO)
+--     end, { desc = "Reload Sage loaders and dashboard" })
+--
+--     vim.api.nvim_create_user_command("SageCleanup", function()
+--         vim.api.nvim_exec_autocmds("VimLeavePre", {})
+--     end, { desc = "Trigger Sage cleanup" })
+--
+--     vim.api.nvim_create_user_command("SageDebugLazy", function(c_opts)
+--         local pack_name = c_opts.args
+--         local row = Dashboard:find(pack_name)
+--
+--         if not row then
+--             vim.notify("Pack not found: " .. pack_name, vim.log.levels.ERROR)
+--             return
+--         end
+--
+--         local info = {
+--             stage = row.stage.value,
+--             has_lazy = row.lazy ~= nil,
+--             lazy_info = row.lazy and row.lazy:get_info() or "no lazy element",
+--             trigger_data = row.lazy and row.lazy.trigger_data or "none",
+--         }
+--         print(vim.inspect(info))
+--     end, { nargs = 1, desc = "Debug lazy element for a pack" })
+-- end
+--
 function Dashboard:init_smooth_updates()
     self.pending_row_updates = {}
     self.pending_footer_update = false
@@ -2386,6 +2627,11 @@ function Dashboard:init_smooth_updates()
         last_frame = 0,
         pending_renders = {},
     }
+end
+
+function Dashboard.new()
+    -- Redirect to singleton
+    return Dashboard.get_instance()
 end
 
 return Dashboard

@@ -129,7 +129,7 @@ function Orchestrator:init_ui()
     local SageElements = require("sage.ui.elements")
     local SageIcons = require("sage.ui.icons")
     local dm = require("sage.ui.manager")
-    local db = require("sage.ui.dashboard")
+    local db = require("sage.ui.dashboard"):get_instance()
     local SageRenderer = require("sage.ui.renderer")
     local SageRenderQueue = require("sage.ui.render_queue")
 
