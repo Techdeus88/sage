@@ -448,8 +448,8 @@ local function load_specs(opts)
     end
 
     for _, file in ipairs(spec_files) do
-        local module_type = get_module_type(file)
         local success, file_specs = pcall(dofile, file)
+        local module_type = get_module_type(file_specs)
 
         if success and file_specs and type(file_specs) == "table" then
             if module_type == "SINGLE" then
