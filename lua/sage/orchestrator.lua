@@ -1,18 +1,39 @@
 -- ============================================================================
 -- FILE: core/orchestrator.lua
--- Initialization Orchestrator - Controls startup sequence
+-- Initialization Orchestrator - Controls startup sequence - SINGLETON
 -- ============================================================================
 local Orchestrator = {}
 Orchestrator.__index = Orchestrator
 
+-- ============================================================================
+-- SINGLETON INSTANCE
+-- ============================================================================
+local _instance = nil
+
+function Orchestrator.get_instance(opts)
+    if not _instance then
+        _instance = setmetatable({}, Orchestrator)
+        _instance:_init_defaults(opts or {})
+    end
+    return _instance
+end
+
 function Orchestrator.new(opts)
-    local self = setmetatable({}, Orchestrator)
-    self.opts = opts or {}
+    -- Legacy compatibility: redirect to singleton
+    return Orchestrator.get_instance(opts)
+end
+
+-- ============================================================================
+-- INITIALIZATION DEFAULTS
+-- ============================================================================
+function Orchestrator:_init_defaults(opts)
+    self.opts = opts
     self.initialized = false
 
     self.temp_logs = {}
     self.first_access = true
 
+    -- Core services
     self.container = nil
     self.bus = nil
     self.logger = nil
@@ -23,9 +44,30 @@ function Orchestrator.new(opts)
     self.ui = nil
     self.utils = nil
     self.dashboard = nil
-
-    return self
+    self.command = nil
+    self.dm = nil
+    self.db = nil
+    self.renderer = nil
 end
+
+-- ============================================================================
+-- RESET (for testing/reinitialization)
+-- ============================================================================
+function Orchestrator:reset()
+    self:log("Orchestrator", "Resetting orchestrator state")
+
+    -- Clean up existing instances
+    if self.dashboard and self.dashboard.is_open then
+        self.dashboard:close()
+    end
+
+    -- Reset to defaults
+    self:_init_defaults(self.opts)
+end
+
+-- ============================================================================
+-- CORE INITIALIZATION METHODS
+-- ============================================================================
 
 function Orchestrator:init_base()
     require("sage.base.global").init()
@@ -125,27 +167,31 @@ function Orchestrator:init_ui()
     if not self.manager or not self.bus then
         error("Manager, Bus must be initialized before UI")
     end
-    -- Dashboard is a singleton table, not a class with .new()
+
+    local Dashboard = require("sage.ui.dashboard")
     local SageElements = require("sage.ui.elements")
     local SageIcons = require("sage.ui.icons")
     local dm = require("sage.ui.manager")
-    local db = require("sage.ui.dashboard"):get_instance()
     local SageRenderer = require("sage.ui.renderer")
     local SageRenderQueue = require("sage.ui.render_queue")
 
     self.dm = dm.new(self.opts)
-    self.db = db
+    self.db = Dashboard.get_instance()
     self.renderer = SageRenderer.new(self.bus, self.dm, SageRenderQueue)
-    -- NEW: wire the strategy object
-    self.dm.dashboard = self.db -- give it the UI
-    -- Initialize the dashboard with options
-    self.dm.dashboard:init(self.container, SageElements, SageIcons, self.opts)
+
+    -- Wire the strategy object
+    self.dm.dashboard = self.db
+
+    -- Initialize the dashboard ONLY ONCE
+    if not self.db.initialized then
+        self.db:init(self.container, SageElements, SageIcons, self.opts)
+    end
+
     self.manager:initialize(self.renderer)
 
-
     self.container:register("dashboard", function()
-        return self.db
-    end, { lazy = true })
+        return Dashboard.get_instance()
+    end, { lazy = false })
 
     self.container:register("dashboard_manager", function()
         return self.dm
@@ -248,6 +294,10 @@ function Orchestrator:init_public()
     self:log("Orchestrator", "SageAPI (public) registered")
 end
 
+-- ============================================================================
+-- MAIN INITIALIZATION ENTRY POINT
+-- ============================================================================
+
 function Orchestrator:execute_initialization()
     if self.initialized then
         self:log("Orchestrator", "Already initialized, skipping")
@@ -260,9 +310,7 @@ function Orchestrator:execute_initialization()
     self:init_base()
     self:init_bus()
     self:init_manager()
-
     self:init_ui()
-
     self:init_pack()
     self:init_deps()
     self:init_metrics()
@@ -274,6 +322,10 @@ function Orchestrator:execute_initialization()
     self.initialized = true
     self:log("Orchestrator", "Initialization complete")
 end
+
+-- ============================================================================
+-- LOGGING (with temp log buffering)
+-- ============================================================================
 
 function Orchestrator:dump_temp_logs()
     if self.first_access then
@@ -309,8 +361,8 @@ function Orchestrator:log(source, msg)
         if not self.temp_logs[curr_log_num] then
             self.temp_logs[curr_log_num] = log
         end
-        -- vim.api.nvim_echo({ { string.format("[%s] %s", source, msg) } }, false, {})
     end
 end
 
 return Orchestrator
+
