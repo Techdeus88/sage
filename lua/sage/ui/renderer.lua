@@ -240,6 +240,11 @@ function Renderer:register_listeners()
         self.debug_log(string.format("--Caught-- all_created pack emit with a duration of %s", data.create_duration))
         self.dm.dashboard:resort_rows()
     end)
+
+    self.bus.on("pack:status_update", function(data)
+        self.debug_log(string.format("--Caught-- status_updated pack emit with a new status of ", data.status))
+        self:on_pack_updated(data)
+    end)
 end
 
 -- ============================================================================

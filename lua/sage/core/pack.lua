@@ -124,22 +124,20 @@ function Pack:get_path()
     return nil
 end
 
-function Pack:set_status(status)
+function Pack:set_status(new_status)
     local pack_name = self:get_name()
     local curr_status = self:get_status()
-    local delay_status = 300
 
-    if curr_status ~= status then
-        self.status = status
+    if curr_status ~= new_status then
+        self.status = new_status
 
         if bus then
-            bus.emit("pack:status:change", {
+            bus.emit("pack:status:update", {
                 name = pack_name,
                 prev_status = curr_status,
-                status = status,
+                status = new_status,
             })
         end
-        return self.status
     end
     return self.status
 end

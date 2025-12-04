@@ -25,7 +25,7 @@ end
 function Loader:load_pack(pack)
     local name = pack:get_name()
 
-    if not pack.installed then
+    if not pack.installed or (pack:get_status() ~= "wait_to_load") then
         return false, "Pack not installed"
     end
 

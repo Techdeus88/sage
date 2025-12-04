@@ -163,8 +163,12 @@ function Manager:install_batch(packs, on_complete)
                     name = pack.name,
                     status = pack:get_status(),
                     install_duration = install_ms,
-                    message = "Installed " .. pack.name,
+                    message = pack.name .. " is waiting to load",
                 })
+
+                vim.defer_fn(function()
+                    pack:set_status("ready_for_load")
+                end, 300)
             else
                 -- Failure
                 pack.installed = false

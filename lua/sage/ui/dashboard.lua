@@ -359,7 +359,7 @@ function Dashboard:bufline(row)
     if not row.mark_id then
         return nil
     end
-    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, Dashboard.ns_rows, row.mark_id, {})
+    local pos = vim.api.nvim_buf_get_extmark_by_id(self.content_buf, self.ns_rows, row.mark_id, {})
     if not pos or not pos[1] then
         return nil
     end
@@ -1017,7 +1017,7 @@ function Dashboard:render_footer_primary_extmarks()
     -- LINE 0: Progress bar
     local progress_text = string.format(
         "[%d/%d] %s %.0f%%",
-        (stats.loaded + stats.lazy + stats.disabled),
+        stats.loaded + stats.unloaded,
         stats.total,
         progress_bar,
         progress_pct
@@ -1074,7 +1074,7 @@ function Dashboard:render_footer_alternative_extmarks()
 
     -- Calculate progress percentage
     local pct = 0
-    local loaded = math.min((stats.loaded + stats.disabled + stats.lazy), 100)
+    local loaded = math.min((stats.loaded), 100)
     if stats.total > 0 then
         pct = math.floor((loaded / stats.total) * 100)
     end
@@ -1171,17 +1171,11 @@ function Dashboard:get_stats()
         if s == "ready" or s == "configured" or s == "loaded" then
             stats.loaded = stats.loaded + 1
         end
-        if
-            s == "created"
-            or s == "idle"
-            or s == "installing"
-            or s == "configuring"
-            or s == "loading"
-            or s == "lazy"
-            or s == "disabled"
-        then
+
+        if s == "wait_to_load" or s == "configuring" or s == "disabled" then
             stats.unloaded = stats.unloaded + 1
         end
+
         if s == "failed" then
             stats.failed = stats.failed + 1
         end
