@@ -147,26 +147,25 @@ M.build = function(spec, path)
         return
     end
 
-    bus.emit("pack:install:build_start", {
-        name = package_name,
-        message = string.format("Building %s...", package_name),
-    })
-
     vim.schedule(function()
+        bus.emit("pack:install:build_start", {
+            name = package_name,
+            message = string.format("Building %s...", package_name),
+        })
+
         local cmd = vim.split(spec.data.build, ",")
-        print(vim.inspect(cmd))
         local response = vim.system(cmd, { cwd = path }):wait()
         vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
         vim.notify(
             ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
             response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
         )
-    end)
 
-    bus.emit("pack:install:build_complete", {
-        name = package_name,
-        message = string.format("Build %s for %s built", response.code ~= 0 and "failed" or "successful", package_name),
-    })
+        bus.emit("pack:install:build_complete", {
+            name = package_name,
+            message = string.format("Build %s for %s built", response.code ~= 0 and "failed" or "successful", package_name),
+        })
+    end)
 end
 
 ---Load one or more packs by name, or all packs.
