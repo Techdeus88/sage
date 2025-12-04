@@ -4,7 +4,7 @@
 -- ============================================================================
 
 local Container = require("sage.core.container").get_instance()
-
+local bus = Container:resolve("bus")
 ---@private
 ---@return Sage.Spec[], string[]
 local function get_specs_and_names()
@@ -98,7 +98,23 @@ end
 
 ---@param spec Sage.Spec
 ---@param path string
-local function handle_build(spec, path) end
+local function handle_build(cmd, path)
+    vim.schedule(function()
+        local response = vim.system(cmd, { cwd = path }):wait()
+        vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
+        vim.notify(
+            ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
+            response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
+        )
+        local response_message =
+            string.format("Build %s for %s built", response.code ~= 0 and "failed" or "successful", package_name)
+
+        bus.emit("pack:install:build_complete", {
+            name = package_name,
+            message = response_message,
+        })
+    end)
+end
 
 -- ============================================================================
 -- Load packs
@@ -137,35 +153,23 @@ M.build = function(spec, path)
     then
         return
     end
-    local bus = Container:resolve("bus")
 
     local config = require("sage.config")
     local package_name = vim.fn.fnamemodify(spec.src, ":t")
     local package_fpath = config.opts.data_path .. config.opts.packages_rpath .. package_name
     local stat = vim.uv.fs_stat(package_fpath)
+
     if not stat or stat.type ~= "directory" then
         return
     end
 
-    vim.schedule(function()
-        bus.emit("pack:install:build_start", {
-            name = package_name,
-            message = string.format("Building %s...", package_name),
-        })
+    local cmd = vim.split(spec.data.build, ",")
+    handle_build(cmd, path)
 
-        local cmd = vim.split(spec.data.build, ",")
-        local response = vim.system(cmd, { cwd = path }):wait()
-        vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
-        vim.notify(
-            ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
-            response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
-        )
-
-        bus.emit("pack:install:build_complete", {
-            name = package_name,
-            message = string.format("Build %s for %s built", response.code ~= 0 and "failed" or "successful", package_name),
-        })
-    end)
+    bus.emit("pack:install:build_start", {
+        name = package_name,
+        message = string.format("Building %s...", package_name),
+    })
 end
 
 ---Load one or more packs by name, or all packs.
