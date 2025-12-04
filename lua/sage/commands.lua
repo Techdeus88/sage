@@ -99,29 +99,6 @@ end
 ---@param spec Sage.Spec
 ---@param path string
 local function handle_build(spec, path)
-    if
-        type(spec.src) ~= "string"
-        or type(spec.data) ~= "table"
-        or type(spec.data.build) ~= "string"
-        or is_blank(spec.data.build)
-    then
-        return
-    end
-    print(path)
-
-    local config = require("sage.config")
-    local package_name = vim.fn.fnamemodify(spec.src, ":t")
-    local package_fpath = config.opts.data_path .. config.opts.packages_rpath .. package_name
-    local stat = vim.uv.fs_stat(package_fpath)
-    if not stat or stat.type ~= "directory" then
-        return
-    end
-
-    bus.emit("pack:install:build", {
-        name = package_name,
-        message = string.format("Building %s files", package_name),
-    })
-
     vim.schedule(function()
         local ok, err = pcall(spec.data.build, package_name, path)
         if not ok then
@@ -167,20 +144,40 @@ end
 local M = {}
 
 M.build = function(spec, path)
-    print("Starting build")
-    local ok, err = pcall(spec.data.build, spec.name, path)
-    if not ok then
-        vim.notify(string.format("Error for %s in build: %s", spec.name, err))
+    if
+        type(spec.src) ~= "string"
+        or type(spec.data) ~= "table"
+        or type(spec.data.build) ~= "string"
+        or is_blank(spec.data.build)
+    then
+        return
     end
-    print("Finished build")
-    -- local cmd = vim.split(spec.data.build, ",")
-    -- local response = vim.system(cmd, { cwd = path }):wait()
-    -- vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
-    -- vim.notify(
-    --     ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
-    --     response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
-    -- )
-    -- handle_build(spec, path)
+
+    local config = require("sage.config")
+    local package_name = vim.fn.fnamemodify(spec.src, ":t")
+    local package_fpath = config.opts.data_path .. config.opts.packages_rpath .. package_name
+    local stat = vim.uv.fs_stat(package_fpath)
+    if not stat or stat.type ~= "directory" then
+        return
+    end
+
+    bus.emit("pack:install:build_start", {
+        name = package_name,
+        message = string.format("Building %s...", package_name),
+    })
+
+    local cmd = vim.split(spec.data.build, ",")
+    local response = vim.system(cmd, { cwd = path }):wait()
+    vim.notify(("Building %s..."):format(package_name), vim.log.levels.WARN)
+    vim.notify(
+        ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
+        response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
+    )
+
+    bus.emit("pack:install:build_complete", {
+        name = package_name,
+        message = string.format("Build %s for %s built", response.code ~= 0 and "failed" or "successful", package_name),
+    })
 end
 
 ---Load one or more packs by name, or all packs.
