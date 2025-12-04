@@ -228,9 +228,8 @@ end
 ---Get the type of a module
 ---@param module_path string
 ---@return string "SINGLE"|"MULTIPLE"
-local function get_module_type(module_path)
-    local module = require(module_path)
-    local key, first_value = next(module)
+local function get_module_type(module_tbl)
+    local key, first_value = next(module_tbl)
 
     if type(first_value) == "table" then
         return "MULTIPLE" -- First value is a table
