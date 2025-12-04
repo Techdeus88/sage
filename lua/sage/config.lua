@@ -225,6 +225,19 @@ end
 -- ============================================================================
 -- Utility Functions
 -- ============================================================================
+---Get the type of a module
+---@param module_path string
+---@return string "SINGLE"|"MULTIPLE"
+local function get_module_type(module_path)
+    local module = require(module_path)
+    local first_value = select(2, next(module))
+
+    if type(first_value) == "table" then
+        return "MULTIPLE" -- First value is a table
+    else
+        return "SINGLE" -- First value is string/function/etc
+    end
+end
 
 ---Utility: extract normalized pack/plugin name from a spec or source string
 ---@param input any String or table spec
@@ -435,9 +448,11 @@ local function load_specs(opts)
     end
 
     for _, file in ipairs(spec_files) do
+        local module_type = get_module_type(file)
         local success, file_specs = pcall(dofile, file)
 
         if success and file_specs and type(file_specs) == "table" then
+            file_specs = module_type == "SINGLE" and { file_specs } or file_specs
             for _, spec in ipairs(file_specs) do
                 -- Validate user spec
                 local is_valid, errors = validate_spec_fields(spec)
