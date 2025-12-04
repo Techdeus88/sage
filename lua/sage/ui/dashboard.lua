@@ -1084,12 +1084,12 @@ function Dashboard:render_footer_alternative_extmarks()
     local pct = 0
     local loaded = math.min(stats.loaded + stats.unloaded, 100)
     if stats.total > 0 then
-        pct = math.floor((loaded + stats.unloaded / stats.total) * 100)
+        pct = math.floor((loaded / stats.total) * 100)
     end
 
-    -- Create progress bar (10 segments)
-    local filled = math.floor(pct / 10)
-    local empty = 10 - filled
+    -- Create progress bar (5 segments)
+    local filled = math.floor(pct / 5)
+    local empty = 5 - filled
     local bar = "[" .. string.rep("■", filled) .. string.rep("□", empty) .. "]"
 
     -- Prepare buffer
