@@ -106,14 +106,15 @@ local function handle_build(cmd, path)
             ("Build %s for %s"):format(response.code ~= 0 and "failed" or "successful", package_name),
             response.code ~= 0 and vim.log.levels.ERROR or vim.log.levels.INFO
         )
-        local response_message =
-            string.format("Build %s for %s built", response.code ~= 0 and "failed" or "successful", package_name)
-
-        bus.emit("pack:install:build_complete", {
-            name = package_name,
-            message = response_message,
-        })
     end)
+        -- local response_message =
+        --     string.format("Build %s for %s built", response.code ~= 0 and "failed" or "successful", package_name)
+
+        -- bus.emit("pack:install:build_complete", {
+        --     name = package_name,
+        --     message = response_message,
+        -- })
+    -- end)
 end
 
 -- ============================================================================
@@ -163,10 +164,10 @@ M.build = function(spec, path)
         return
     end
 
-    bus.emit("pack:install:build_start", {
-        name = package_name,
-        message = string.format("Building %s...", package_name),
-    })
+    -- bus.emit("pack:install:build_start", {
+    --     name = package_name,
+    --     message = string.format("Building %s...", package_name),
+    -- })
 
     local cmd = vim.split(spec.data.build, ",")
     handle_build(cmd, path)
