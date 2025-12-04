@@ -1,2 +1,4 @@
 *.pub
-ids_ed25519
+ids_ed25519tests
+tests/fixtures tests/spec
+tests
