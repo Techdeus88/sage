@@ -230,7 +230,7 @@ end
 ---@return string "SINGLE"|"MULTIPLE"
 local function get_module_type(module_path)
     local module = require(module_path)
-    local first_value = select(2, next(module))
+    local key, first_value = next(module)
 
     if type(first_value) == "table" then
         return "MULTIPLE" -- First value is a table
