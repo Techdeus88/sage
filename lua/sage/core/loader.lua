@@ -139,17 +139,19 @@ function Loader:configure_pack(pack, on_complete)
         pack:set_status("ready")
         pack.times.config_duration = "0.00"
 
-        self.bus.emit("pack:config:finish", {
-            name = name,
-            pack = pack,
-            status = pack:get_status(),
-            config_duration = 0,
-            message = "No config for " .. name,
-        })
+        self:run_post_hooks(pack, function()
+            self.bus.emit("pack:config:finish", {
+                name = name,
+                pack = pack,
+                status = pack:get_status(),
+                config_duration = 0,
+                message = "No config for " .. name,
+            })
 
-        if on_complete then
-            on_complete(true)
-        end
+            if on_complete then
+                on_complete(true)
+            end
+        end)
         return
     end
 
@@ -187,17 +189,20 @@ function Loader:configure_pack(pack, on_complete)
 
     pack:set_status("ready")
 
-    self.bus.emit("pack:config:finish", {
-        name = name,
-        pack = pack,
-        status = pack:get_status(),
-        message = "Configured " .. name,
-        config_duration = config_duration,
-    })
+    -- Run post hooks AFTER config succeeds but BEFORE completion
+    self:run_post_hooks(pack, function()
+        self.bus.emit("pack:config:finish", {
+            name = name,
+            pack = pack,
+            status = pack:get_status(),
+            message = "Configured " .. name,
+            config_duration = config_duration,
+        })
 
-    if on_complete then
-        on_complete(true)
-    end
+        if on_complete then
+            on_complete(true)
+        end
+    end)
 end
 
 -- ============================================================================
@@ -249,6 +254,102 @@ function Loader:finalize_stage(stage_name, packs, start_time, on_complete)
 
     if on_complete then
         vim.schedule(on_complete)
+    end
+end
+
+-- ============================================================================
+-- Hook execution methods
+-- ============================================================================
+
+function Loader:run_init_hooks(packs, on_complete)
+    -- Init hooks run BEFORE any packs in this stage are loaded
+    local init_hooks = {}
+
+    for _, pack in ipairs(packs) do
+        local spec = pack.specs.normalize or {}
+        local data = spec.data or {}
+        local hook = data.init
+
+        if hook then
+            table.insert(init_hooks, { pack = pack, hook = hook })
+        end
+    end
+
+    if #init_hooks == 0 then
+        if on_complete then
+            on_complete()
+        end
+        return
+    end
+
+    local completed = 0
+    local total = #init_hooks
+
+    for _, item in ipairs(init_hooks) do
+        local ok, err = pcall(item.hook, item.pack)
+
+        if not ok then
+            self.bus.emit("pack:hook:failed", {
+                pack = item.pack:get_name(),
+                hook_type = "init",
+                error = err,
+            })
+        else
+            self.bus.emit("pack:hook:executed", {
+                pack = item.pack:get_name(),
+                hook_type = "init",
+            })
+        end
+
+        completed = completed + 1
+
+        if completed >= total and on_complete then
+            on_complete()
+        end
+    end
+end
+
+function Loader:run_post_hooks(pack, on_complete)
+    -- Post hooks run IMMEDIATELY after THIS pack is configured
+    local spec = pack.specs.normalize or {}
+    local data = spec.data or {}
+    local hooks = data.post or {}
+
+    if type(hooks) == "function" then
+        hooks = { hooks }
+    end
+
+    if #hooks == 0 then
+        if on_complete then
+            on_complete()
+        end
+        return
+    end
+
+    local completed = 0
+    local total = #hooks
+
+    for _, hook in ipairs(hooks) do
+        local ok, err = pcall(hook, pack)
+
+        if not ok then
+            self.bus.emit("pack:hook:failed", {
+                pack = pack:get_name(),
+                hook_type = "post",
+                error = err,
+            })
+        else
+            self.bus.emit("pack:hook:executed", {
+                pack = pack:get_name(),
+                hook_type = "post",
+            })
+        end
+
+        completed = completed + 1
+
+        if completed >= total and on_complete then
+            on_complete()
+        end
     end
 end
 

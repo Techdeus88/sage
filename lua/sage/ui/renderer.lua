@@ -33,9 +33,9 @@ function Renderer:on_pack_created(data)
     self.created_count = self.created_count + 1
     local index = self.created_count
 
-    -- Visible stagger: one new row every 46ms
+    -- Visible stagger: one new row every 28ms
     -- tweak this if you want faster/slower animation
-    local delay = index * 28
+    local delay = index * 20
 
     self.queue:push(function()
         vim.defer_fn(function()

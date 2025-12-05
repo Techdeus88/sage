@@ -999,20 +999,30 @@ function Dashboard:render_footer_primary_extmarks()
         total_duration = sage_metrics:get_event("uienter") or 0
     end
 
-    -- Calculate progress
-    local progress_pct = stats.total > 0 and ((stats.loaded + stats.unloaded) / stats.total * 100) or 0
-    local bar_width = math.floor(win_width * 0.6)
-    local filled = math.floor(bar_width * (progress_pct / 100))
-    local empty = bar_width - filled
-    local progress_bar = string.rep("█", filled) .. string.rep("░", empty)
-
     -- Prepare buffer with proper line structure
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.footer_buf })
-    vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, { "", "", "", "" })
+    vim.api.nvim_buf_set_lines(self.footer_buf, 0, -1, false, { "", "", "", "", "" })
     vim.api.nvim_set_option_value("modifiable", false, { buf = self.footer_buf })
 
     -- Clear previous extmarks
     vim.api.nvim_buf_clear_namespace(self.footer_buf, self.ns_footer, 0, -1)
+
+    -- Calculate progress
+    local progress_pct = stats.total > 0 and ((stats.loaded + stats.unloaded) / stats.total * 100) or 0
+    local bar_width = math.floor(win_width * 0.6)
+    local filled_main = math.floor(bar_width * (progress_pct / 100))
+    local empty = bar_width - filled_main
+    local progress_bar = string.rep("█", filled_main) .. string.rep("░", empty)
+
+    local loaded = math.min(stats.loaded + stats.unloaded, 100)
+
+    local pct = math.floor((loaded / stats.total) * 100)
+
+    -- Create progress bar (50 segments)
+    local blocks = 50
+    local filled_two = math.floor((pct / blocks) * blocks)
+    local empty_two = blocks - filled_two
+    local bar = "[" .. string.rep("■", filled_two) .. string.rep("□", empty_two) .. "]"
 
     -- LINE 0: Progress bar
     local progress_text =
@@ -1021,6 +1031,13 @@ function Dashboard:render_footer_primary_extmarks()
 
     vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 0, 0, {
         virt_text = { { progress_centered, "SageFooterProgress" } },
+        virt_text_pos = "overlay",
+        hl_mode = "combine",
+    })
+
+    local progress2_centered = center_text(bar, win_width)
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 1, 0, {
+        virt_text = { { progress2_centered, "SageFooterProgress" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
     })
@@ -1047,13 +1064,13 @@ function Dashboard:render_footer_primary_extmarks()
 
     local stages_centered = center_text(stages_text, win_width)
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 1, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 2, 0, {
         virt_text = { { stages_centered, "Error" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
     })
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 2, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 3, 0, {
         virt_text = { { stats_centered, "Comment" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -1063,7 +1080,7 @@ function Dashboard:render_footer_primary_extmarks()
         "Press 'r' to refresh  •  'q' to quit  •  '<CR>' to toggle details  •  '<Tab>' to switch tabs  •  '?' for help"
     local help_centered = center_text(help_text, win_width)
 
-    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 3, 0, {
+    vim.api.nvim_buf_set_extmark(self.footer_buf, self.ns_footer, 4, 0, {
         virt_text = { { help_centered, "SageFooterHelp" } },
         virt_text_pos = "overlay",
         hl_mode = "combine",
@@ -1082,15 +1099,6 @@ function Dashboard:render_footer_alternative_extmarks()
 
     local win_width = vim.api.nvim_win_get_width(self.footer_win)
     -- Calculate progress percentage
-    local pct = 0
-    local loaded = math.min(stats.loaded + stats.unloaded, 100)
-    pct = math.floor((loaded / stats.total) * 100)
-
-    -- Create progress bar (50 segments)
-    local blocks = 50
-    local filled = math.floor((pct / blocks) * blocks)
-    local empty = blocks - filled
-    local bar = "[" .. string.rep("■", filled) .. string.rep("□", empty) .. "]"
 
     -- Prepare buffer
     vim.api.nvim_set_option_value("modifiable", true, { buf = self.footer_buf })
@@ -1520,7 +1528,7 @@ function Dashboard:build_elements_for_pack(data)
     local stage = data.stage
     local status = data.status
     local message = data.message
-    local path = data.path or ""
+    local path = data.path or icons.base.file .. " " .. vim.fn.stdpath("data") .. "/site/pack/core/opt/" .. name
 
     local Pack = self.manager.packs[name]
     local n_spec = Pack.specs.normalize

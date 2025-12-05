@@ -223,6 +223,40 @@ end
 -- ============================================================================
 -- Stage Loading
 -- ============================================================================
+-- ============================================================================
+-- In Manager: Inject init hooks at stage start
+-- ============================================================================
+
+function Manager:initiate_stage_loading(by_stage)
+    local Bus = self.bus
+    local Loader = self.container:resolve("loader")
+
+    local stages = {
+        { name = "now", packs = by_stage.now },
+        { name = "lazy", packs = by_stage.lazy },
+        { name = "later", packs = by_stage.later },
+        { name = "disabled", packs = by_stage.disabled },
+    }
+
+    local function process_next_stage(index)
+        if index > #stages then
+            Bus.emit("pack:all_stages_complete", { stages = stages, packs = by_stage })
+            return
+        end
+
+        local stage = stages[index]
+
+        -- Run init hooks BEFORE loading stage packs
+        Loader:run_init_hooks(stage.packs, function()
+            Loader:load_stage(stage.name, stage.packs, function()
+                process_next_stage(index + 1)
+            end)
+        end)
+    end
+
+    process_next_stage(1)
+end
+
 function Manager:initiate_stage_loading(by_stage)
     local Bus = self.bus
     local Loader = self.container:resolve("loader")

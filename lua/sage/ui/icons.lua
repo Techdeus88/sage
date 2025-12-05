@@ -6,12 +6,13 @@ return {
         keys = "",
         setup = "",
         config = "",
-		global = "",
-		error = "",
-		warn = "",
-		hint = "󰌵",
-		info = "",
-		other = "",
+        global = "",
+        error = "",
+        warn = "",
+        hint = "󰌵",
+        info = "",
+        file = "󰈙",
+        other = "",
     },
 
     -- Status icons
@@ -23,7 +24,7 @@ return {
         configuring = "󰒓",
         disabled = "󰪎",
         waiting = "󰔟",
-		runtime = " ",
+        runtime = " ",
     },
 
     -- Stage icons
@@ -37,38 +38,38 @@ return {
     -- Trigger type icons
     trigger = {
         event = "",
-        filetype = "󰈔",   -- File icon for filetypes
+        filetype = "󰈔", -- File icon for filetypes
         ft = "",
         cmd = " ",
-		keys = " ",
+        keys = " ",
         command = " ",
-        keymap = "󰌓",     -- Keyboard for keymaps
+        keymap = "󰌓", -- Keyboard for keymaps
     },
 
-	-- Dependency icons
+    -- Dependency icons
     depends = {
-        depends =  "",
+        depends = "",
         after = "󰁔",
         before = "󰁒",
     },
 
     -- Timing icons
     timers = {
-        install = "󰇚",    -- Download/install
-        duration = "󱎫",    -- Clock/timer
+        install = "󰇚", -- Download/install
+        duration = "󱎫", -- Clock/timer
     },
 
-	-- UI nav elements
+    -- UI nav elements
     navigation = {
         expand = "└─",
         collapse = "├─",
         separator = "•",
         arrow_right = "",
         arrow_down = "",
-        setup = "󰒓",     -- Config/setup
+        setup = "󰒓", -- Config/setup
     },
 
-	-- Progress
+    -- Progress
     progress = {
         full = "█",
         empty = "░",
