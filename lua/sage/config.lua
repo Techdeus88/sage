@@ -6,6 +6,7 @@
 ---@class Sage.Config.UserOpts
 ---@field config_path string
 ---@field data_path string
+---oooooooooooooooooooooo
 ---@field packages_rpath string
 ---@field sage_rpath string
 ---@field plugins_rpath string
@@ -141,11 +142,58 @@ local function validate_spec_fields(spec)
     local src = spec.src or spec[1]
     if not src or type(src) ~= "string" then
         errors[#errors + 1] = "spec.src or spec[1] is required and must be a string"
+
     end
 
     return #errors == 0, errors
 end
 
+--- Validate a normalized pack spec
+---@param spec table
+---@return boolean ok, string[] errors
+local function validate_spec_fields(spec)
+    local errors = {}
+    if type(spec) ~= "table" then
+        return false, { "spec is not a table" }
+    end
+
+    -- 1. top-level keys
+    for key, _ in pairs(spec) do
+        if not validate_pack_spec_key(key) then
+            errors[#errors + 1] = ("Invalid top-level key: '%s'"):format(key)
+        end
+    end
+
+    -- 2. spec.data keys
+    local data = spec.data
+    if data ~= nil then
+        if type(data) ~= "table" then
+            errors[#errors + 1] = "spec.data must be a table"
+        else
+            for key, _ in pairs(data) do
+                if not validate_pack_data_key(key) then
+                    errors[#errors + 1] = ("Invalid data key: 'data.%s'"):format(key)
+                end
+            end
+
+            -- 3. spec.data.on keys
+            local on = data.on
+            if on ~= nil then
+                if type(on) ~= "table" then
+                    errors[#errors + 1] = "spec.data.on must be a table"
+                else
+                    for key, _ in pairs(on) do
+                        if not validate_on_key(key) then
+                            errors[#errors + 1] = ("Invalid on key: 'data.on.%s'"):format(key)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return #errors == 0, errors
+end
 --- Validate a normalized pack spec
 ---@param spec table
 ---@return boolean ok, string[] errors

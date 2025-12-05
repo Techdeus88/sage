@@ -38,12 +38,11 @@ function M.setup(opts)
     local config = require("sage.config")
     config.setup(opts)
 
-    -- ✅ At this point, config.specs contains all normalized specs
+    -- ✅ At this point, config.specs contains all normalized specs & Dependencies
     -- No need for Manager to load/validate/normalize again!
-
     if vim.g.sage_debug then
         vim.notify(
-            string.format("[Sage] Config ready with %d normalized specs", config.spec_count or 0),
+            string.format("[Sage] Config ready with %d normalized specs", config.count or 0),
             vim.log.levels.INFO
         )
     end
