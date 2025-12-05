@@ -6,7 +6,6 @@
 ---@class Sage.Config.UserOpts
 ---@field config_path string
 ---@field data_path string
----oooooooooooooooooooooo
 ---@field packages_rpath string
 ---@field sage_rpath string
 ---@field plugins_rpath string
@@ -85,9 +84,6 @@ local VALID_SPEC_KEYS = {
     [1] = true, -- Allow array-style { "user/repo" }
 }
 
---- Validate user spec key (before normalization)
----@param key string
----@return boolean
 -- Normalized pack spec keys (after normalization)
 local VALID_PACK_SPEC_KEYS = {
     src = true,
@@ -96,9 +92,6 @@ local VALID_PACK_SPEC_KEYS = {
     data = true,
 }
 
---- Validate spec.data key
----@param key string
----@return boolean
 -- spec.data keys
 local VALID_PACK_DATA_KEYS = {
     depends = true,
@@ -114,8 +107,45 @@ local VALID_PACK_DATA_KEYS = {
     color = true,
 }
 
---- Validate spec.data.on key
 -- spec.data.on keys
+local VALID_ON_KEYS = {
+    before = true,
+    after = true,
+    events = true,
+    event = true,
+    fts = true,
+    ft = true,
+    cmds = true,
+    cmd = true,
+    keys = true,
+}
+
+-- ============================================================================
+-- Validation Functions
+-- ============================================================================
+
+--- Validate user spec key (before normalization)
+---@param key string
+---@return boolean
+local function validate_spec_key(key)
+    return VALID_SPEC_KEYS[key] == true
+end
+
+--- Validate normalized pack spec key
+---@param key string
+---@return boolean
+local function validate_pack_spec_key(key)
+    return VALID_PACK_SPEC_KEYS[key] == true
+end
+
+--- Validate spec.data key
+---@param key string
+---@return boolean
+local function validate_pack_data_key(key)
+    return VALID_PACK_DATA_KEYS[key] == true
+end
+
+--- Validate spec.data.on key
 ---@param key string
 ---@return boolean
 local function validate_on_key(key)
@@ -142,58 +172,11 @@ local function validate_spec_fields(spec)
     local src = spec.src or spec[1]
     if not src or type(src) ~= "string" then
         errors[#errors + 1] = "spec.src or spec[1] is required and must be a string"
-
     end
 
     return #errors == 0, errors
 end
 
---- Validate a normalized pack spec
----@param spec table
----@return boolean ok, string[] errors
-local function validate_spec_fields(spec)
-    local errors = {}
-    if type(spec) ~= "table" then
-        return false, { "spec is not a table" }
-    end
-
-    -- 1. top-level keys
-    for key, _ in pairs(spec) do
-        if not validate_pack_spec_key(key) then
-            errors[#errors + 1] = ("Invalid top-level key: '%s'"):format(key)
-        end
-    end
-
-    -- 2. spec.data keys
-    local data = spec.data
-    if data ~= nil then
-        if type(data) ~= "table" then
-            errors[#errors + 1] = "spec.data must be a table"
-        else
-            for key, _ in pairs(data) do
-                if not validate_pack_data_key(key) then
-                    errors[#errors + 1] = ("Invalid data key: 'data.%s'"):format(key)
-                end
-            end
-
-            -- 3. spec.data.on keys
-            local on = data.on
-            if on ~= nil then
-                if type(on) ~= "table" then
-                    errors[#errors + 1] = "spec.data.on must be a table"
-                else
-                    for key, _ in pairs(on) do
-                        if not validate_on_key(key) then
-                            errors[#errors + 1] = ("Invalid on key: 'data.on.%s'"):format(key)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return #errors == 0, errors
-end
 --- Validate a normalized pack spec
 ---@param spec table
 ---@return boolean ok, string[] errors
@@ -241,6 +224,7 @@ local function validate_pack_fields(spec)
     return #errors == 0, errors
 end
 
+
 -- ============================================================================
 -- Utility Functions
 -- ============================================================================
@@ -255,80 +239,6 @@ local function get_module_type(module_tbl)
     else
         return "SINGLE" -- First value is string/function/etc
     end
-end
-
--- ============================================================================
--- Sorting Functions
--- ============================================================================
-
---- Sort specs by stage order, then by priority within each stage
----@param specs table[] Normalized specs
----@return table[] sorted_specs Specs sorted by stage/priority
-local function sort_specs_by_stage_priority(specs)
-    -- Define stage order (lower number = loads first)
-    local stage_order = {
-        now = 1,
-        lazy = 2,
-        later = 3,
-        disabled = 4,
-    }
-
-    local sorted = vim.list_extend({}, specs)
-
-    table.sort(sorted, function(a, b)
-        local stage_a = a.data.stage or M.stages["LATER"]
-        local stage_b = b.data.stage or M.stages["LATER"]
-
-        local order_a = stage_order[stage_a] or 999
-        local order_b = stage_order[stage_b] or 999
-
-        -- First, sort by stage
-        if order_a ~= order_b then
-            return order_a < order_b
-        end
-
-        -- Within same stage, sort by priority (higher priority loads first)
-        local priority_a = a.data.priority or 100
-        local priority_b = b.data.priority or 100
-
-        return priority_a > priority_b
-    end)
-
-    return sorted
-end
-
---- Sort specs by stage, returning a table grouped by stage
----@param specs table[] Normalized specs
----@return table by_stage Specs grouped: { now = {...}, lazy = {...}, later = {...}, disabled = {...} }
-local function group_specs_by_stage(specs)
-    local by_stage = {
-        now = {},
-        lazy = {},
-        later = {},
-        disabled = {},
-    }
-
-    for _, spec in ipairs(specs) do
-        local stage = spec.data.stage or M.stages["LATER"]
-
-        if by_stage[stage] then
-            table.insert(by_stage[stage], spec)
-        else
-            -- Unknown stage, default to later
-            table.insert(by_stage.later, spec)
-        end
-    end
-
-    -- Sort within each stage by priority (higher = first)
-    for stage_name, stage_specs in pairs(by_stage) do
-        table.sort(stage_specs, function(a, b)
-            local priority_a = a.data.priority or 100
-            local priority_b = b.data.priority or 100
-            return priority_a > priority_b
-        end)
-    end
-
-    return by_stage
 end
 
 ---Utility: extract normalized pack/plugin name from a spec or source string
@@ -402,9 +312,8 @@ local function get_lua_files_recursive_opts(path, exclude_dirs)
 end
 
 -- ============================================================================
--- Spec Normalization with Dependency Resolution
+-- Spec Normalization
 -- ============================================================================
-
 local function determine_stage(spec)
     local stage = ""
     local disabled = spec.enabled ~= nil and spec.enabled == false
@@ -441,87 +350,6 @@ local function determine_stage(spec)
     return stage
 end
 
---- Normalize a dependency (string or table) into a full user spec
----@param dep string|table Dependency reference
----@param parent_stage string Stage of the parent pack
----@return table user_spec Normalized dependency as a user spec
-local function normalize_dependency(dep, parent_stage)
-    if type(dep) == "string" then
-        -- String dependency: "user/repo" or just "repo"
-        -- Use parent's stage, mark for auto-require
-        return {
-            src = dep,
-            name = extract_name(dep),
-            stage = parent_stage,
-            auto_require = true,
-        }
-    elseif type(dep) == "table" then
-        if dep.name then
-            -- Full spec provided
-            return vim.tbl_deep_extend("keep", dep, {
-                stage = dep.stage or parent_stage,
-            })
-        else
-            -- Shorthand: { "user/repo" } or { src = "..." }
-            local src = dep.src or dep[1]
-            return {
-                src = src,
-                name = extract_name(src),
-                stage = dep.stage or parent_stage,
-            }
-        end
-    end
-
-    return nil
-end
-
---- Recursively collect all dependencies into a flat list
----@param specs table[] User specs (already loaded)
----@return table spec_with_deps User specs with dependencies injected
-local function resolve_all_dependencies(specs)
-    local seen_specs = {}
-    local result_specs = {}
-
-    -- Track original spec names to avoid re-processing
-    for _, spec in ipairs(specs) do
-        local name = extract_name(spec.src or spec[1])
-        seen_specs[name] = true
-    end
-
-    local function process_spec(spec, parent_stage)
-        local spec_name = extract_name(spec.src or spec[1])
-
-        -- Skip if already processed (prevents cycles)
-        if seen_specs[spec_name] then
-            return
-        end
-        seen_specs[spec_name] = true
-
-        -- Process dependencies first (depth-first, ensures deps load before dependents)
-        local depends = spec.depends or {}
-        if type(depends) == "function" then
-            depends = {} -- Skip function dependencies, handle at runtime
-        end
-
-        for _, dep in ipairs(depends) do
-            local dep_spec = normalize_dependency(dep, spec.stage or M.stages["LATER"])
-            if dep_spec then
-                process_spec(dep_spec, spec.stage or M.stages["LATER"])
-            end
-        end
-
-        -- Add this spec after its dependencies
-        table.insert(result_specs, spec)
-    end
-
-    -- Process all input specs
-    for _, spec in ipairs(specs) do
-        process_spec(spec, spec.stage or M.stages["LATER"])
-    end
-
-    return result_specs
-end
-
 ---Normalize a user spec into the standard pack format
 ---@param spec table User spec
 ---@return table|nil normalized_spec Normalized spec ready for vim.pack.add
@@ -536,6 +364,7 @@ local function normalize_spec(spec)
     local version = spec.version
     local disabled = not not (spec.enabled ~= nil and spec.enabled == false)
     local stage = determine_stage(spec)
+    local priority = spec.priority or 100
 
     local n_spec = {}
 
@@ -549,7 +378,7 @@ local function normalize_spec(spec)
     n_spec["data"]["on"] = {}
 
     n_spec.data.enabled = not disabled
-
+    -- Move config-related fields into data
     if source then
         n_spec.data.source = source
     end
@@ -580,20 +409,12 @@ local function normalize_spec(spec)
         n_spec.data.post = spec.post
     end
 
-    -- Preserve dependencies as-is (will be resolved at load time)
     if spec.depends then
         n_spec.data.depends = spec.depends
-    else
-        n_spec.data.depends = {}
     end
 
     if stage then
         n_spec.data.stage = stage
-    end
-
-    -- Mark auto-require dependencies for runtime handling
-    if spec.auto_require then
-        n_spec.data.auto_require = true
     end
 
     if spec.on then
@@ -609,7 +430,7 @@ local function normalize_spec(spec)
 end
 
 -- ============================================================================
--- Spec Loading with Dependency Injection
+-- Spec Loading
 -- ============================================================================
 
 ---Load and normalize all specs from the plugins directory
@@ -634,9 +455,6 @@ local function load_specs(opts)
         return all_specs
     end
 
-    -- Step 1: Load and validate all user specs
-    local user_specs = {}
-
     for _, file in ipairs(spec_files) do
         local success, file_specs = pcall(dofile, file)
         local module_type = get_module_type(file_specs)
@@ -645,7 +463,6 @@ local function load_specs(opts)
             if module_type == "SINGLE" then
                 file_specs = { file_specs }
             end
-
             for _, spec in ipairs(file_specs) do
                 -- Validate user spec
                 local is_valid, errors = validate_spec_fields(spec)
@@ -658,10 +475,34 @@ local function load_specs(opts)
                     goto continue
                 end
 
-                local name = extract_name(spec.src or spec[1])
+                -- Normalize spec
+                local n_spec = normalize_spec(spec)
+
+                if not n_spec then
+                    vim.notify(string.format("Failed to normalize spec from %s", file), vim.log.levels.ERROR)
+                    goto continue
+                end
+
+                -- Validate normalized spec
+                local is_valid_normalized, norm_errors = validate_pack_fields(n_spec)
+
+                if not is_valid_normalized then
+                    vim.notify(
+                        string.format(
+                            "Invalid normalized spec for %s:\n%s",
+                            n_spec.name,
+                            table.concat(norm_errors, "\n")
+                        ),
+                        vim.log.levels.ERROR
+                    )
+                    goto continue
+                end
+
+                -- Check for duplicates
+                local name = n_spec.name
                 if not seen_names[name] then
                     seen_names[name] = true
-                    table.insert(user_specs, spec)
+                    table.insert(all_specs, n_spec)
                 else
                     vim.notify(string.format("Duplicate spec: %s (skipping)", name), vim.log.levels.WARN)
                 end
@@ -676,53 +517,12 @@ local function load_specs(opts)
         end
     end
 
-    if #user_specs == 0 then
+    if #all_specs == 0 then
         vim.notify("No pack specs found", vim.log.levels.DEBUG)
         return all_specs
     end
 
-    -- Step 2: Resolve dependencies and inject them
-    local user_specs_with_deps = resolve_all_dependencies(user_specs)
-
-    -- Step 3: Normalize all specs (including injected dependencies)
-    for _, spec in ipairs(user_specs_with_deps) do
-        local n_spec = normalize_spec(spec)
-
-        if not n_spec then
-            vim.notify(
-                string.format("Failed to normalize spec from %s", extract_name(spec.src or spec[1])),
-                vim.log.levels.ERROR
-            )
-            goto normalize_continue
-        end
-
-        -- Validate normalized spec
-        local is_valid_normalized, norm_errors = validate_pack_fields(n_spec)
-
-        if not is_valid_normalized then
-            vim.notify(
-                string.format("Invalid normalized spec for %s:\n%s", n_spec.name, table.concat(norm_errors, "\n")),
-                vim.log.levels.ERROR
-            )
-            goto normalize_continue
-        end
-
-        table.insert(all_specs, n_spec)
-
-        ::normalize_continue::
-    end
-
-    -- Step 4: Sort by stage/priority
-    all_specs = sort_specs_by_stage_priority(all_specs)
-
-    vim.notify(
-        string.format(
-            "Loaded and normalized %d pack specs (including %d dependencies)",
-            #all_specs,
-            #all_specs - #user_specs
-        ),
-        vim.log.levels.DEBUG
-    )
+    vim.notify(string.format("Loaded and normalized %d pack specs", #all_specs), vim.log.levels.DEBUG)
 
     return all_specs
 end
@@ -737,7 +537,7 @@ function M.setup(opts)
     -- Merge user opts with defaults
     M.opts = vim.tbl_deep_extend("force", M.opts, opts or {})
 
-    -- Load, resolve dependencies, normalize, and sort all specs
+    -- Load and normalize all specs
     M.specs = load_specs(M.opts)
 
     -- Store spec count for later use
@@ -759,24 +559,18 @@ function M.get_spec(name)
     end
 
     return nil
-end ---Get all normalized specs
+end
 
+---Get all normalized specs
 ---@return table[] specs Array of normalized specs
 function M.get_all_specs()
     return M.specs or {}
-end
-
----Get specs grouped by stage
----@return table by_stage Specs grouped by stage
-function M.get_specs_by_stage()
-    return group_specs_by_stage(M.specs or {})
 end
 
 ---Validate a single spec (useful for runtime validation)
 ---@param spec table Spec to validate
 ---@param normalized? boolean Whether spec is already normalized
 ---@return boolean ok, string[] errors
----
 function M.validate(spec, normalized)
     if normalized then
         return validate_pack_fields(spec)
